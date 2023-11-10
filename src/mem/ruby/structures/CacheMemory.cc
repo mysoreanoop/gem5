@@ -757,6 +757,7 @@ void
 CacheMemory::profileDemandMiss()
 {
     cacheMemoryStats.m_demand_misses++;
+    std::cerr << "MISSLOG: " << name().c_str() << " " <<  curTick() << std::endl;
 }
 
 void

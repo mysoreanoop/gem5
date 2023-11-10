@@ -30686,6 +30686,8 @@ namespace Gcn3ISA
                 return -1;
             }
         } // getOperandSize
+        void initiateAcc(GPUDynInstPtr gpuDynInst) override;
+        void completeAcc(GPUDynInstPtr gpuDynInst) override;
 
         void execute(GPUDynInstPtr) override;
     }; // Inst_DS__DS_ADD_U32
@@ -42056,6 +42058,8 @@ namespace Gcn3ISA
         } // getOperandSize
 
         void execute(GPUDynInstPtr) override;
+        void initiateAcc(GPUDynInstPtr) override;
+        void completeAcc(GPUDynInstPtr) override;
     }; // Inst_FLAT__FLAT_ATOMIC_SMAX
 
     class Inst_FLAT__FLAT_ATOMIC_UMAX : public Inst_FLAT
