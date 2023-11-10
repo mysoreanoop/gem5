@@ -134,8 +134,6 @@ machine(MachineType:Directory, "AMD Baseline protocol")
     L3TagArrayWrite,    desc="Write the data array";
   }
 
-  // TYPES
-
   // DirectoryEntry
   structure(Entry, desc="...", interface="AbstractCacheEntry", main="false") {
     State DirectoryState,          desc="Directory state";
@@ -159,6 +157,7 @@ machine(MachineType:Directory, "AMD Baseline protocol")
     bool wtData,       desc="Got write through data?",default="false";
     bool readyToResp,       desc="Got dirty probe with data",default="false";
     bool responded,       desc="Got dirty probe with data",default="false";
+    MachineID LastResponder,       desc="Mach which this block came from (diff from Sender)";
     bool atomicData,   desc="Got Atomic op?",default="false";
     Cycles InitialRequestTime, desc="...";
     Cycles ForwardRequestTime, desc="...";
@@ -695,7 +694,7 @@ machine(MachineType:Directory, "AMD Baseline protocol")
           out_msg.Destination := probe_dests;
           tbe.NumPendingAcks := out_msg.Destination.count();
           DPRINTF(RubySlicc, "%s\n", out_msg);
-          APPEND_TRANSITION_COMMENT(" dc: Acks remaining: ");
+          APPEND_TRANSITION_COMMENT(" dc: Acks sending: ");
           APPEND_TRANSITION_COMMENT(tbe.NumPendingAcks);
           tbe.ProbeRequestStartTime := curCycle();
           assert(out_msg.Destination.count() > 0);
@@ -807,7 +806,7 @@ machine(MachineType:Directory, "AMD Baseline protocol")
           out_msg.Destination := probe_dests;
           tbe.NumPendingAcks := out_msg.Destination.count();
           DPRINTF(RubySlicc, "%s\n", (out_msg));
-          APPEND_TRANSITION_COMMENT(" sc: Acks remaining: ");
+          APPEND_TRANSITION_COMMENT(" sc: Acks sending: ");
           APPEND_TRANSITION_COMMENT(tbe.NumPendingAcks);
           tbe.ProbeRequestStartTime := curCycle();
           assert(out_msg.Destination.count() > 0);
@@ -859,7 +858,7 @@ machine(MachineType:Directory, "AMD Baseline protocol")
           out_msg.Destination := probe_dests;
           tbe.NumPendingAcks := out_msg.Destination.count();
           DPRINTF(RubySlicc, "%s\n", (out_msg));
-          APPEND_TRANSITION_COMMENT(" sc: Acks remaining: ");
+          APPEND_TRANSITION_COMMENT(" sc: Acks sending: ");
           APPEND_TRANSITION_COMMENT(tbe.NumPendingAcks);
           tbe.ProbeRequestStartTime := curCycle();
           assert(out_msg.Destination.count() > 0);
@@ -1025,6 +1024,7 @@ machine(MachineType:Directory, "AMD Baseline protocol")
 
   action(y_writeProbeDataToTBE, "y", desc="write Probe Data to TBE") {
     peek(responseNetwork_in, ResponseMsg) {
+      tbe.LastResponder := in_msg.Sender;
       if (in_msg.Dirty) {
         tbe.readyToResp := true;
         if (tbe.wtData) {
@@ -1033,6 +1033,9 @@ machine(MachineType:Directory, "AMD Baseline protocol")
           tbe.DataBlk := tmp;
           tbe.writeMask.fillMask();
         } else if (tbe.Dirty) {
+          // this is to enure no trace can enter here
+          assert(false); 
+
           if(tbe.atomicData == false && tbe.wtData == false) {
             DPRINTF(RubySlicc, "Got double data for %s from %s\n", address, in_msg.Sender);
             assert(tbe.DataBlk == in_msg.DataBlk);  // in case of double data
@@ -1192,6 +1195,8 @@ machine(MachineType:Directory, "AMD Baseline protocol")
     tbe.NumPendingAcks := tbe.NumPendingAcks - 1;
     APPEND_TRANSITION_COMMENT(" Acks remaining: ");
     APPEND_TRANSITION_COMMENT(tbe.NumPendingAcks);
+    APPEND_TRANSITION_COMMENT(" | from: ");
+    APPEND_TRANSITION_COMMENT(tbe.LastResponder);
     if (tbe.NumPendingAcks == 0) {
       enqueue(triggerQueue_out, TriggerMsg, 1) {
         out_msg.addr := address;
