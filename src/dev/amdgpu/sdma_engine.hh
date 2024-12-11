@@ -37,6 +37,7 @@
 #include "dev/amdgpu/pm4_queues.hh"
 #include "dev/amdgpu/sdma_packets.hh"
 #include "dev/dma_virt_device.hh"
+#include "gpu-compute/shader.hh"
 #include "params/SDMAEngine.hh"
 
 namespace gem5
@@ -170,6 +171,10 @@ class SDMAEngine : public DmaVirtDevice
 
     Addr mmioBase = 0;
     Addr mmioSize = 0;
+
+    /* Used by perfetto logger to log "long" SDMA packets. */
+    PerfettoAnnotation pktNotes;
+    Tick pktStart = 0;
 
   public:
     SDMAEngine(const SDMAEngineParams &p);

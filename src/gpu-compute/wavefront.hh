@@ -259,6 +259,8 @@ class Wavefront : public SimObject
     setParent(ComputeUnit *cu)
     {
         computeUnit = cu;
+        perfettoTrackName = "CU" + std::to_string(cu->cu_id)
+                          + "-" + perfettoTrackName;
     }
 
     void validateRequestCounters();
@@ -329,6 +331,8 @@ class Wavefront : public SimObject
     std::string lastInstRdyStatus;
     bool lastVrfStatus, lastSrfStatus;
 
+    void markRegion(std::string& region_name, uint32_t flags);
+
   private:
     TheGpuISA::GPUISA _gpuISA;
 
@@ -363,7 +367,16 @@ class Wavefront : public SimObject
     VectorMask _execMask;
     int barId;
 
+    // Only used for perfetto logging.
+    std::string perfettoTrackName;
+    uint64_t lastWfDynId = 0;
+    Tick lastWfDynStart = 0;
+
+    std::unordered_map<std::string, Tick> regionMap;
+
   public:
+    std::string lastInstRdyStatus;
+
     struct WavefrontStats : public statistics::Group
     {
         WavefrontStats(statistics::Group *parent);
