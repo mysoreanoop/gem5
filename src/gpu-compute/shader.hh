@@ -266,6 +266,8 @@ class Shader : public ClockedObject
 
     // List of Compute Units (CU's)
     std::vector<ComputeUnit*> cuList;
+    std::vector<bool> disabledCUs;
+    uint32_t enabled_n_cus;
 
     GPUCommandProcessor &gpuCmdProc;
     GPUDispatcher &_dispatcher;

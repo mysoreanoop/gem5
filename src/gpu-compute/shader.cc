@@ -95,6 +95,19 @@ Shader::Shader(const Params &p) : ClockedObject(p),
 
     shHiddenPrivateBaseVmid = 0;
 
+    const char* envVar = std::getenv("ROC_GLOBAL_CU_MASK");
+    if (envVar) {
+        DPRINTF(GPUDisp, "Disabling CUs: %s\n", envVar);
+        std::string s = envVar;
+        uint32_t num = std::stoi(s, 0, 16);
+        enabled_n_cus = 0;
+        while (num) {
+            enabled_n_cus += num & 1;
+            num >>= 1;
+        }
+    } else
+        enabled_n_cus = n_cu;
+
     cuList.resize(n_cu);
 
     panic_if(n_wf <= 0, "Must have at least 1 WF Slot per SIMD");
@@ -262,9 +275,9 @@ Shader::dispatchWorkgroups(HSAQueueEntry *task)
     int curCu = nextSchedCu;
     int disp_count(0);
 
-    while (cuCount < n_cu) {
+    while (cuCount < enabled_n_cus) {
         //Every time we try a CU, update nextSchedCu
-        nextSchedCu = (nextSchedCu + 1) % n_cu;
+        nextSchedCu = (nextSchedCu + 1) % enabled_n_cus;
 
         // dispatch workgroup iff the following two conditions are met:
         // (a) wg_rem is true - there are unassigned workgroups in the grid
@@ -273,8 +286,9 @@ Shader::dispatchWorkgroups(HSAQueueEntry *task)
         bool can_disp = cuList[curCu]->hasDispResources(task, num_wfs_in_wg);
         if (!task->dispComplete() && can_disp) {
             scheduledSomething = true;
-            DPRINTF(GPUDisp, "Dispatching a workgroup to CU %d: WG %d\n",
-                            curCu, task->globalWgId());
+            DPRINTF(GPUDisp,
+                    "Dispatching a workgroup from Kernel %s to CU %d: WG %d\n",
+                            task->kernelName(), curCu, task->globalWgId());
             DPRINTF(GPUAgentDisp, "Dispatching a workgroup to CU %d: WG %d\n",
                             curCu, task->globalWgId());
             DPRINTF(GPUWgLatency, "WG Begin cycle:%d wg:%d cu:%d\n",
