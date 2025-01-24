@@ -1684,6 +1684,32 @@ ComputeUnit::DTLBPort::recvTimingResp(PacketPtr pkt)
             gpuDynInst->simdId, gpuDynInst->wfSlotId, pkt->req->getVaddr(),
             line, gpuDynInst->disassemble().c_str(), gpuDynInst->seqNum());
 
+    // Log perfetto line, if on.
+    if (computeUnit->shader->usePerfettoInsts) {
+        std::string track_name = "CU" + std::to_string(computeUnit->cu_id)
+            + "-" + "UTC";
+
+        auto slice = perfettoSlice("WF", track_name,
+            translation_state->startTick, curTick(),
+            "Translation for " + gpuDynInst->disassemble());
+
+        PerfettoAnnotation xlat_info;
+        xlat_info["Hit @ level"] = std::to_string(translation_state->hitLevel);
+        xlat_info["Type"] = "Vector";
+
+        std::stringstream fmt;
+        fmt << std::hex << pkt->req->getVaddr();
+        std::string translation_text = fmt.str() + " -> ";
+        fmt.str("");
+        fmt << std::hex << pkt->req->getPaddr();
+        translation_text += fmt.str();
+        xlat_info["Translation"] = translation_text;
+
+        computeUnit->shader->writePerfettoLog(slice, xlat_info);
+    }
+
+    delete translation_state;
+
     MemCmd requestCmd;
 
     if (pkt->cmd == MemCmd::ReadResp) {

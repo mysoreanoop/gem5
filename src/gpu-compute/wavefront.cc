@@ -635,8 +635,9 @@ Wavefront::setStatus(status_e newStatus)
         }
     }
 
-    // Perfetto logging. Only log moving to stopped, sleep, or mwait. Any thing
-    // else will cause splits in the perfetto slices.
+    // Perfetto logging. Only log moving from running to stopped. Any thing
+    // else will cause splits in the perfetto slices which prevents showing a
+    // flame graph like inverse pyramid.
     if (computeUnit->shader->usePerfettoWfDynId && newStatus != status) {
         bool idle_transition = false;
         if (newStatus == S_STOPPED) {
