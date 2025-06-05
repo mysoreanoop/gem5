@@ -554,6 +554,7 @@ ComputeUnit::dispWorkgroup(HSAQueueEntry *task, int num_wfs_in_wg)
     // globally unique
     LdsChunk *ldsChunk = lds.reserveSpace(task->dispatchId(),
                                           task->globalWgId(),
+                                          num_wfs_in_wg,
                                           task->ldsSize());
 
     panic_if(!ldsChunk, "was not able to reserve space for this WG");

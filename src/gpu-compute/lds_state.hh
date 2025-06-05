@@ -57,13 +57,81 @@ class ComputeUnit;
 class LdsChunk
 {
   public:
-    LdsChunk(const uint32_t x_size):
-        chunk(x_size)
+    LdsChunk(uint32_t x_size, int dispatch_id, int wg_id, int wf_cnt,
+                uint32_t reserve=0):
+        chunk(x_size),
+        _upgraded(false),
+        _terminal(false),
+        _downgradePosts(0),
+        _terminalPosts(0),
+        dispatchId(dispatch_id),
+        wgId(wg_id),
+        numWfs(wf_cnt),
+        reservedSpace(reserve)
     {
+      DPRINTF(GPULDS, "Initializing chunk with size %d, reserved %d\n",
+        x_size, reservedSpace);
     }
 
     LdsChunk() {}
 
+    int getReservedSpace() {
+      return reservedSpace;
+    }
+
+    bool isTerminal() {
+      return _terminal;
+    }
+
+    bool upgrade() {
+      if (!_upgraded) {
+        DPRINTF(GPULDS, "LDS[%d][%d] upgrade to %d\n",
+                  dispatchId, wgId,
+                  chunk.size() + reservedSpace);
+        chunk.resize(chunk.size() + reservedSpace);
+        _upgraded = true;
+        reservedSpace = 0; // reset
+        return true;
+      } else {
+        // is this even possible?
+        DPRINTF(GPULDS, "LDS[%d][%d] already upgraded\n",
+                  dispatchId, wgId);
+        return false;
+      }
+    }
+
+    bool downgrade(const uint32_t to) {
+      assert (_downgradePosts < numWfs);
+      if (++_downgradePosts == numWfs) {
+        DPRINTF(GPULDS, "LDS[%d][%d] downgrade to %d\n",
+                  dispatchId, wgId, to);
+        chunk.resize(to);
+        _downgradePosts = 0;
+        return true;
+      } else {
+        DPRINTF(GPULDS, "LDS[%d][%d] %d WFs remain\n",
+                dispatchId, wgId,
+                numWfs - _downgradePosts);
+        return false;
+      }
+    }
+
+    bool markTerminal() {
+      assert (_terminalPosts < numWfs);
+      if (++_terminalPosts == numWfs) {
+        DPRINTF(GPULDS, "LDS[%d][%d] marked terminal\n",
+                  dispatchId, wgId);
+        _terminal = true;
+        _terminalPosts = 0;
+        return true;
+      } else {
+        DPRINTF(GPULDS, "LDS[%d][%d] %d WFs remain\n",
+                dispatchId, wgId,
+                numWfs - _terminalPosts);
+        return false;
+      }
+
+    }
     /**
      * a read operation
      */
@@ -76,8 +144,8 @@ class LdsChunk
          * chunk allocated to this WG we return 0.
          */
         if (index >= chunk.size()) {
-            DPRINTF(GPULDS, "LDS[%d][%d]: Read 0 beyond size (%ld)\n",
-                    dispatchId, wgId, chunk.size());
+            DPRINTF(GPULDS, "LDS[%d][%d]: Read %d beyond size (%ld)\n",
+                    dispatchId, wgId, index, chunk.size());
             return (T)0;
         }
 
@@ -126,12 +194,12 @@ class LdsChunk
             [[maybe_unused]] uint32_t prev_val =
                 *reinterpret_cast<uint32_t*>(p0);
             DPRINTF(GPULDS, "LDS[%d][%d]: Write %08lx to index %d (was "
-                    "%08lx)\n", dispatchId, wgId, value, index, prev_val);
+                   "%08lx)\n", dispatchId, wgId, value, index, prev_val);
         } else if (sizeof(T) <= 8) {
             [[maybe_unused]] uint64_t prev_val =
                 *reinterpret_cast<uint64_t*>(p0);
             DPRINTF(GPULDS, "LDS[%d][%d]: Write %016lx to index %d (was "
-                    "%016lx)\n", dispatchId, wgId, value, index, prev_val);
+                   "%016lx)\n", dispatchId, wgId, value, index, prev_val);
         } else if (sizeof(T) <= 16) {
             [[maybe_unused]] uint64_t *prev_vals =
                 reinterpret_cast<uint64_t*>(p0);
@@ -175,12 +243,22 @@ class LdsChunk
         return chunk.size();
     }
 
-    uint32_t dispatchId;
-    uint32_t wgId;
 
   protected:
     // the actual data store for this slice of the LDS
     std::vector<uint8_t> chunk;
+    bool _upgraded;
+    bool _terminal;
+
+
+  private:
+    int _downgradePosts;
+    int _terminalPosts;
+
+    uint32_t dispatchId;
+    uint32_t wgId;
+    int numWfs;
+    int reservedSpace;
 };
 
 // Local Data Share (LDS) State per Wavefront (contents of the LDS region
@@ -423,39 +501,6 @@ class LdsState: public ClockedObject
       return 0;
     }
 
-    /**
-     * assign a parent and request this amount of space be set aside
-     * for this wgid
-     */
-    LdsChunk *
-    reserveSpace(const uint32_t dispatchId, const uint32_t wgId,
-            const uint32_t size)
-    {
-        if (chunkMap.find(dispatchId) != chunkMap.end()) {
-            panic_if(
-                chunkMap[dispatchId].find(wgId) != chunkMap[dispatchId].end(),
-                "duplicate workgroup ID asking for space in the LDS "
-                "did[%d] wgid[%d]", dispatchId, wgId);
-        }
-
-        if (bytesAllocated + size > maximumSize) {
-            return nullptr;
-        } else {
-            bytesAllocated += size;
-
-            auto value = chunkMap[dispatchId].emplace(wgId, LdsChunk(size));
-            panic_if(!value.second, "was unable to allocate a new chunkMap");
-
-            // make an entry for this workgroup
-            refCounter[dispatchId][wgId] = 0;
-
-            chunkMap[dispatchId][wgId].dispatchId = dispatchId;
-            chunkMap[dispatchId][wgId].wgId = wgId;
-
-            return &chunkMap[dispatchId][wgId];
-        }
-    }
-
     /*
      * return pointer to lds chunk for wgid
      */
@@ -516,15 +561,6 @@ class LdsState: public ClockedObject
         return bankConflictPenalty;
     }
 
-    /**
-     * get the allocated size for this workgroup
-     */
-    std::size_t
-    ldsSize(const uint32_t x_wgId)
-    {
-        return chunkMap[x_wgId].size();
-    }
-
     AddrRange
     getAddrRange() const
     {
@@ -542,14 +578,234 @@ class LdsState: public ClockedObject
         }
     }
 
+/* LDS chunks can exist in
+      free (F), terminal (T), Allocated (A), and Ceded (C)
+    at a given time, F+T+A+C is constant (no R there)
+    a free chunk can get allocated (F->A)
+    allocated can get terminal (A->T) or free (A->F)
+    a terminal chunk can get reserved by a lookahead Wg,
+      but the chunk remains (T)
+    a terminal chunk can get freed if no reservations exist (T->F)
+      or Ceded to reservations (T->E)
+    if more terminal chunk is freed without sufficient reservations,
+      part of it is E, and rest F
+    a lookahead wg can launch with some F and some T (by reserving them)
+    at a LDS resource barrier an Ceded
+      chunk can get allocated (E->A)
+*/
+    int bytesFree() {
+      return maximumSize - bytesAllocated - bytesTerminal - bytesCeded;
+    }
+
+    void printCurrentUsage() {
+      DPRINTF(GPULDS, "F %d | T %d | R %d "
+        "| C %d | A %d\n",
+        bytesFree(),
+        bytesTerminal,
+        bytesReserved,
+        bytesCeded,
+        bytesAllocated);
+      assert(bytesTerminal + bytesAllocated <= maximumSize);
+      assert (bytesTerminal >= bytesReserved);
+    }
+
     /**
      * can this much space be reserved for a workgroup?
      */
     bool
-    canReserve(uint32_t x_size) const
+    canReserve(uint32_t x_size)
     {
-      return bytesAllocated + x_size <= maximumSize;
+      printCurrentUsage();
+      return x_size <= bytesFree();
     }
+
+    /**
+     * assign a parent and request this amount of space be set aside
+     * for this wgid
+     */
+    LdsChunk *
+    reserveSpace(const uint32_t dispatchId,
+            const uint32_t wgId, const uint32_t num_wfs,
+            const uint32_t size)
+    {
+        printCurrentUsage();
+        if (chunkMap.find(dispatchId) != chunkMap.end()) {
+            panic_if(
+                chunkMap[dispatchId].find(wgId) != chunkMap[dispatchId].end(),
+                "duplicate workgroup ID asking for space in the LDS "
+                "did[%d] wgid[%d]", dispatchId, wgId);
+        }
+
+        if (size > bytesFree()) {
+            return nullptr;
+        } else {
+            bytesAllocated += size;
+
+            auto value = chunkMap[dispatchId].emplace(
+                        wgId, LdsChunk(size, dispatchId, wgId, num_wfs, 0));
+            panic_if(!value.second, "was unable to allocate a new chunkMap");
+
+            // make an entry for this workgroup
+            refCounter[dispatchId][wgId] = 0;
+
+            return &chunkMap[dispatchId][wgId];
+        }
+    }
+
+
+    bool
+    canEarlyReserve(uint32_t early_size, uint32_t full_size)
+    {
+      printCurrentUsage();
+
+      // full_size may be entirely sat by bytesFree
+      // but also by a combination of bytesFree and bytesAvailForReserv
+      // bytesAvailForReserv is bytesTerminal not already reserved by others
+      // early_size necessarily has to be sat by bytesFree
+      return (full_size - early_size <= bytesTerminal - bytesReserved) &&
+                (early_size <= bytesFree());
+    }
+    /**
+     * assign a parent and request this amount of space be set aside
+     * for this wgid
+     */
+    LdsChunk *
+    earlyReserveSpace(const uint32_t dispatchId, const uint32_t wgId,
+          const uint32_t numWfs, const uint32_t e_size,
+            const uint32_t full_size)
+    {
+        if (chunkMap.find(dispatchId) != chunkMap.end()) {
+            panic_if(
+              chunkMap[dispatchId].find(wgId) != chunkMap[dispatchId].end(),
+              "duplicate workgroup ID asking for space in the LDS "
+              "did[%d] wgid[%d]", dispatchId, wgId);
+        }
+
+        if (!canEarlyReserve(e_size, full_size)) {
+            return nullptr;
+        } else {
+            int reservation_size = full_size - e_size;
+            int allocation_size = full_size - reservation_size;
+            auto value = chunkMap[dispatchId].emplace(
+                  wgId, LdsChunk(allocation_size, dispatchId,
+                                  wgId, numWfs, reservation_size));
+            panic_if(!value.second, "was unable to allocate a new chunkMap");
+            bytesAllocated += allocation_size;
+            bytesReserved += reservation_size;
+            // make an entry for this workgroup
+            refCounter[dispatchId][wgId] = 0;
+            return &chunkMap[dispatchId][wgId];
+        }
+    }
+
+    // only the last wf can mark terminal in this implementation
+    // this is because when a termination hint follows downgrade
+    // and downgrade waits for the last wf to post
+    // there can be cases where the first wf could not
+    //    downgrade but mark terminal
+    //    before the last wf can downgrade,
+    //    which violates implicit assumptions
+    void
+    markTerminal(uint32_t dispatchId, uint32_t wgId)
+    {
+      if (!chunkMap[dispatchId][wgId].isTerminal()) {
+        // marking terminal first time
+        DPRINTF(GPULDS, "marking wgId %d temrinal, size: %d\n",
+          wgId, (chunkMap[dispatchId][wgId]).size());
+        if (chunkMap[dispatchId][wgId].markTerminal()) {
+          bytesTerminal += (chunkMap[dispatchId][wgId]).size();
+          bytesAllocated -= (chunkMap[dispatchId][wgId]).size();
+        } else {
+          DPRINTF(GPULDS, "waiting for other WFs\n");
+        }
+      } else {
+        DPRINTF(GPULDS, "already terminal (marked by another WF)\n");
+      }
+    }
+
+    bool
+    tryUpgrade(uint32_t dispatchId, uint32_t wgId)
+    {
+      bool can(chunkMap[dispatchId][wgId].getReservedSpace()
+              <= bytesCeded);
+      if (can) {
+        DPRINTF(GPULDS, "can upgrade LDS for wgid %d since"
+            " extension %d <= Ceded %d\n",
+            wgId, chunkMap[dispatchId][wgId].getReservedSpace(),
+            bytesCeded);
+
+        // first wf in wg will service this command
+        int original_size = chunkMap[dispatchId][wgId].size();
+        int final_size = original_size
+                     + chunkMap[dispatchId][wgId].getReservedSpace();
+        DPRINTF(GPULDS, "upgrading LDS for wgId %d from %d to %d\n",
+            wgId, original_size, final_size);
+        if (original_size < final_size) {
+          bool did(chunkMap[dispatchId][wgId].upgrade());
+          if (did) {
+            int delta = final_size - original_size;
+            bytesAllocated += delta;
+            bytesCeded -= delta;
+
+            DPRINTF(GPULDS, "size of resized Wg %d->%d\n",
+                original_size, chunkMap[dispatchId][wgId].size());
+
+            printCurrentUsage();
+            return true;
+          } else {
+            // else another wf already extended
+            assert (false);
+          }
+        } else {
+          // else wg prolly launched with full alloc
+          DPRINTF(GPULDS, "wgId %d already has full alloc\n", wgId);
+          return true;
+        }
+      } else {
+        DPRINTF(GPULDS, "Cannot upgrade LDS for wgid %d since "
+            "extension %d > ceded %d\n",
+          wgId, chunkMap[dispatchId][wgId].getReservedSpace(),
+          bytesCeded);
+        printCurrentUsage();
+        return false;
+      }
+    }
+
+    void
+    downgrade(uint32_t dispatchId, uint32_t wgId,
+      long long int pc, int32_t pct)
+    {
+      // PS Make sure to never downgrade after markTerminal
+
+      int original_size = chunkMap[dispatchId][wgId].size();
+      int final_size = (int) (((float)1 - (float)pct/(float)100)
+            * (float)chunkMap[dispatchId][wgId].size());
+      assert (original_size >= final_size);
+      DPRINTF(GPULDS, "Downgrading LDS for wgId %d from %d to %d\n",
+        wgId,
+          original_size, final_size);
+
+      if (chunkMap[dispatchId][wgId].downgrade(final_size)) {
+        bytesAllocated -= original_size - final_size;
+
+        DPRINTF(GPULDS, "Downgraded from %d to %d\n",
+          original_size, chunkMap[dispatchId][wgId].size());
+        printCurrentUsage();
+      }
+
+    }
+
+  protected:
+    // the number of bytes currently reserved by all workgroups
+    int bytesAllocated = 0;
+    // bytes currently terminal (will soon be free)
+    int bytesTerminal = 0;
+    // terminal bytes reserved
+    // for a given WG, you can only extend on reserved bytes when
+    // free bytes of the LDS > reserved bytes of the WG
+    int bytesReserved = 0;
+    // only extend into reservable, not free
+    int bytesCeded = 0;
 
   private:
     /**
@@ -558,6 +814,8 @@ class LdsState: public ClockedObject
     bool
     releaseSpace(const uint32_t x_dispatchId, const uint32_t x_wgId)
     {
+        DPRINTF(GPULDS, "LDS[%d][%d] releasing\n",
+                        x_dispatchId, x_wgId);
         auto dispatchIter = chunkMap.find(x_dispatchId);
 
         if (dispatchIter == chunkMap.end()) {
@@ -570,11 +828,25 @@ class LdsState: public ClockedObject
           }
         }
 
-        fatal_if(bytesAllocated < chunkMap[x_dispatchId][x_wgId].size(),
-                 "releasing more space than was allocated");
+        fatal_if((bytesAllocated + bytesTerminal) <
+                     chunkMap[x_dispatchId][x_wgId].size(),
+            "releasing more space than was allocated to the entire CU");
+        int f = chunkMap[x_dispatchId][x_wgId].size();
+        if (chunkMap[x_dispatchId][x_wgId].isTerminal()) {
+          if (bytesReserved >= f) {
+            bytesReserved -= f;
+            bytesCeded += f;
+            bytesTerminal -= f;
+          } else {
+            bytesCeded += bytesReserved;
+            bytesTerminal -= f;
+            bytesReserved = 0;
+          }
+        } else
+          bytesAllocated -= f;
 
-        bytesAllocated -= chunkMap[x_dispatchId][x_wgId].size();
         chunkMap[x_dispatchId].erase(chunkMap[x_dispatchId].find(x_wgId));
+        printCurrentUsage();
         return true;
     }
 
@@ -584,9 +856,6 @@ class LdsState: public ClockedObject
     ComputeUnit* parent = nullptr;
 
     std::string _name;
-
-    // the number of bytes currently reserved by all workgroups
-    int bytesAllocated = 0;
 
     // the size of the LDS, the most bytes available
     int maximumSize;
