@@ -207,6 +207,12 @@ class Wavefront : public SimObject
     // will live while the WF is executed
     uint32_t startSgprIndex;
 
+    // for block pool manager only:
+    // ptr to wf's vgpr allocation record within vector register file
+    uint32_t vgprPtr;
+    // ptr to wf's sgpr allocation record within scalar register file
+    uint32_t sgprPtr;
+
     // Architected flat scratch address for MI300+
     Addr archFlatScratchAddr = 0;
 

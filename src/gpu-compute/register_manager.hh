@@ -69,15 +69,32 @@ class RegisterManager : public SimObject
     // check if we can allocate registers
     bool canAllocateVgprs(int simdId, int nWfs, int demandPerWf);
     bool canAllocateSgprs(int simdId, int nWfs, int demandPerWf);
+    int getTotAllocableWfsForVregUsed(int simdId, int demandPerWf,
+      bool early = false, int earlyDemandPerWf = 0);
+    int getTotAllocableWfsForSregUsed(int simdId, int demandPerWf,
+      bool early = false, int earlyDemandPerWf = 0);
 
     // allocate registers
     void allocateRegisters(Wavefront *w, int vectorDemand, int scalarDemand);
+    void allocateEarlyAndReserve(Wavefront *w,
+          int vectorDemand, int earlyVectorDemand,
+          int scalarDemand, int earlyScalarDemand);
 
     // free all registers used by the WF
     void freeRegisters(Wavefront *w);
+    void partialFreeRegisters(Wavefront *w, int vgprs, int sgprs);
+
+    void markTerminal(Wavefront *w);
+    bool canExtend(Wavefront *w);
+    void extendRegisters(Wavefront *w);
+
 
     std::vector<PoolManager*> srfPoolMgrs;
     std::vector<PoolManager*> vrfPoolMgrs;
+
+  public:
+    void setPolicy(RegisterManagerPolicy *p) {policy = p;}
+    RegisterManagerPolicy *getPolicy() {return policy;}
 
   private:
     RegisterManagerPolicy *policy;

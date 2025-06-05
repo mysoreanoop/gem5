@@ -73,6 +73,13 @@ class DynPoolManager(PoolManager):
     cxx_header = "gpu-compute/dyn_pool_manager.hh"
 
 
+## This allows for block-wise pool management
+class BlockPoolManager(PoolManager):
+    type = "BlockPoolManager"
+    cxx_class = "gem5::BlockPoolManager"
+    cxx_header = "gpu-compute/block_pool_manager.hh"
+
+
 class RegisterFile(SimObject):
     type = "RegisterFile"
     cxx_class = "gem5::RegisterFile"

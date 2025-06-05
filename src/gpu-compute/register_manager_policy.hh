@@ -33,6 +33,7 @@
 #define __REGISTER_MANAGER_POLICY_HH__
 
 #include <cstdint>
+#include "base/trace.hh"
 
 namespace gem5
 {
@@ -63,10 +64,28 @@ class RegisterManagerPolicy
     virtual int mapSgpr(Wavefront* w, int sgprIndex) = 0;
 
     // check if requested number of vector registers can be allocated
-    virtual bool canAllocateVgprs(int simdId, int nWfs, int demandPerWf) = 0;
+    virtual bool canAllocateVgprs(int simdId, int nWfs, int demandPerWf) {
+      panic("unimplemented");
+      return false;
+    }
     // check if requested number of scalar registers can be allocated
     // machine ISA only
-    virtual bool canAllocateSgprs(int simdId, int nWfs, int demandPerWf) = 0;
+    virtual bool canAllocateSgprs(int simdId, int nWfs, int demandPerWf) {
+      panic("unimplemented");
+      return false;
+    }
+
+    virtual int getTotAllocableWfsForVregUsed(int simdId, int demandPerWf,
+      bool early, int earlyDemandPerWf) {
+      panic("unimplemented");
+      return 0;
+    }
+
+    virtual int getTotAllocableWfsForSregUsed(int simdId, int demandPerWf,
+      bool early, int earlyDemandPerWf) {
+      panic("unimplemented");
+      return 0;
+    }
 
     // allocate vector registers and reserve from register pool
     virtual void allocateRegisters(Wavefront *w, int vectorDemand,

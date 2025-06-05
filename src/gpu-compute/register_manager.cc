@@ -1,40 +1,40 @@
 /*
- * Copyright (c) 2016, 2017 Advanced Micro Devices, Inc.
- * All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- *
- * 1. Redistributions of source code must retain the above copyright notice,
- * this list of conditions and the following disclaimer.
- *
- * 2. Redistributions in binary form must reproduce the above copyright notice,
- * this list of conditions and the following disclaimer in the documentation
- * and/or other materials provided with the distribution.
- *
- * 3. Neither the name of the copyright holder nor the names of its
- * contributors may be used to endorse or promote products derived from this
- * software without specific prior written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE
- * LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
- * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
- * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
- * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
- * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
- * POSSIBILITY OF SUCH DAMAGE.
- *
- * Author: Mark Wyse
- */
+* Copyright (c) 2016, 2017 Advanced Micro Devices, Inc.
+* All rights reserved.
+*
+* Redistribution and use in source and binary forms, with or without
+* modification, are permitted provided that the following conditions are met:
+*
+* 1. Redistributions of source code must retain the above copyright notice,
+* this list of conditions and the following disclaimer.
+*
+* 2. Redistributions in binary form must reproduce the above copyright notice,
+* this list of conditions and the following disclaimer in the documentation
+* and/or other materials provided with the distribution.
+*
+* 3. Neither the name of the copyright holder nor the names of its
+* contributors may be used to endorse or promote products derived from this
+* software without specific prior written permission.
+*
+* THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+* AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+* IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+* ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE
+* LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+* CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+* SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+* INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+* CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+* ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+* POSSIBILITY OF SUCH DAMAGE.
+*
+* Author: Mark Wyse
+*/
 
 #include "gpu-compute/register_manager.hh"
-
 #include "config/the_gpu_isa.hh"
 #include "debug/GPURename.hh"
+#include "gpu-compute/block_register_manager_policy.hh"
 #include "gpu-compute/compute_unit.hh"
 #include "gpu-compute/scalar_register_file.hh"
 #include "gpu-compute/static_register_manager_policy.hh"
@@ -51,8 +51,11 @@ RegisterManager::RegisterManager(const RegisterManagerParams &p)
 {
     if (p.policy == "static") {
         policy = new StaticRegisterManagerPolicy();
+    } else if (p.policy == "block") {
+        policy = new BlockRegisterManagerPolicy();
     } else {
-        fatal("Unimplemented Register Manager Policy");
+        fatal("Register Manager policy not recognized;"
+            "`block` or `static` only please\n");
     }
 
 }
@@ -111,6 +114,23 @@ RegisterManager::canAllocateVgprs(int simdId, int nWfs, int demandPerWf)
     return policy->canAllocateVgprs(simdId, nWfs, demandPerWf);
 }
 
+int
+RegisterManager::getTotAllocableWfsForVregUsed(
+        int simdId, int demandPerWf, bool early, int earlyDemandPerWf)
+{
+   return policy->getTotAllocableWfsForVregUsed(
+                        simdId, demandPerWf, early, earlyDemandPerWf);
+}
+
+int
+RegisterManager::getTotAllocableWfsForSregUsed(
+        int simdId, int demandPerWf, bool early, int earlyDemandPerWf)
+{
+    return policy->getTotAllocableWfsForSregUsed(
+        simdId, demandPerWf, early, earlyDemandPerWf);
+}
+
+
 bool
 RegisterManager::canAllocateSgprs(int simdId, int nWfs, int demandPerWf)
 {
@@ -126,9 +146,68 @@ RegisterManager::allocateRegisters(Wavefront *w, int vectorDemand,
 }
 
 void
+RegisterManager::allocateEarlyAndReserve(Wavefront *w,
+    int vectorDemand, int earlyVectorDemand,
+    int scalarDemand, int earlyScalarDemand)
+{
+    if (BlockRegisterManagerPolicy* blockPolicy
+            = dynamic_cast<BlockRegisterManagerPolicy*>(policy)) {
+        blockPolicy->
+            allocateEarlyAndReserve(w, vectorDemand, earlyVectorDemand,
+            scalarDemand, earlyScalarDemand);
+    } else {
+        panic ("Method %s can only be invoked by `block` policy\n",
+                __func__);
+    }
+}
+
+void
 RegisterManager::freeRegisters(Wavefront* w)
 {
     policy->freeRegisters(w);
+}
+
+void
+RegisterManager::partialFreeRegisters(Wavefront* w, int vgprs, int sgprs)
+{
+    if (BlockRegisterManagerPolicy* blockPolicy =
+            dynamic_cast<BlockRegisterManagerPolicy*>(policy)) {
+        blockPolicy->partialFreeRegisters(w, vgprs, sgprs);
+    } else {
+        panic ("Method %s can only be invoked by `block` policy\n",
+                __func__);
+    }
+}
+
+void RegisterManager::markTerminal(Wavefront *w)
+{
+    if (BlockRegisterManagerPolicy* blockPolicy =
+            dynamic_cast<BlockRegisterManagerPolicy*>(policy)) {
+        blockPolicy->markTerminal(w);
+    } else {
+        panic ("Method %s can only be invoked by `block` policy\n",
+                __func__);
+    }
+}
+bool RegisterManager::canExtend(Wavefront *w)
+{
+    if (BlockRegisterManagerPolicy* blockPolicy =
+            dynamic_cast<BlockRegisterManagerPolicy*>(policy)) {
+        return blockPolicy->canExtend(w);
+    } else {
+        panic ("Method %s can only be invoked by `block` policy\n",
+                __func__);
+    }
+}
+void RegisterManager::extendRegisters(Wavefront *w)
+{
+    if (BlockRegisterManagerPolicy* blockPolicy =
+            dynamic_cast<BlockRegisterManagerPolicy*>(policy)) {
+        blockPolicy->extendRegisters(w);
+    } else {
+        panic ("Method %s can only be invoked by `block` policy\n",
+                __func__);
+    }
 }
 
 } // namespace gem5

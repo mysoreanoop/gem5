@@ -131,6 +131,19 @@ def createGPU(system, args):
                         min_alloc=args.vreg_min_alloc,
                     )
                 )
+            elif args.reg_alloc_policy == "block":
+                vrf_pool_mgrs.append(
+                    BlockPoolManager(
+                        pool_size=args.vreg_file_size,
+                        min_alloc=args.vreg_min_alloc,
+                    )
+                )
+                srf_pool_mgrs.append(
+                    BlockPoolManager(
+                        pool_size=args.sreg_file_size,
+                        min_alloc=args.vreg_min_alloc,
+                    )
+                )
 
             vrfs.append(
                 VectorRegisterFile(
