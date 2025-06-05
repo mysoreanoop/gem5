@@ -375,8 +375,6 @@ class Wavefront : public SimObject
     std::unordered_map<std::string, Tick> regionMap;
 
   public:
-    std::string lastInstRdyStatus;
-
     struct WavefrontStats : public statistics::Group
     {
         WavefrontStats(statistics::Group *parent);
