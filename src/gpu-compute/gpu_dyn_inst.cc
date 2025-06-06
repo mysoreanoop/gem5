@@ -409,6 +409,22 @@ GPUDynInst::isBarrier() const
 }
 
 bool
+GPUDynInst::isResUpdate() const
+{
+    return _staticInst->isResUpdate();
+}
+
+bool
+GPUDynInst::isResBarrier() const
+{
+    return _staticInst->isResBarrier();
+}
+bool
+GPUDynInst::isLdsBarrier() const
+{
+    return _staticInst->isLdsBarrier();
+}
+bool
 GPUDynInst::isMemSync() const
 {
     return _staticInst->isMemSync();

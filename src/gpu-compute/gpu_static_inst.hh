@@ -126,6 +126,9 @@ class GPUStaticInst : public GPUStaticInstFlags
     bool isSleep() const { return _flags[Sleep]; }
 
     bool isBarrier() const { return _flags[MemBarrier]; }
+    bool isResUpdate() const {return _flags[ResUpdate]; }
+    bool isResBarrier() const {return _flags[ResBarrier]; }
+    bool isLdsBarrier() const {return _flags[LdsBarrier]; }
     bool isMemSync() const { return _flags[MemSync]; }
     bool isMemRef() const { return _flags[MemoryRef]; }
     bool isFlat() const { return _flags[Flat]; }

@@ -124,6 +124,59 @@ ScoreboardCheckStage::ready(Wavefront *w, nonrdytype_e *rdyStatus,
         computeUnit.releaseWFsFromBarrier(bar_id);
     }
 
+    if (w->getStatus() == Wavefront::S_RES_BARRIER ||
+        w->getStatus() == Wavefront::S_LDS_BARRIER) {
+        if (w->atResourceBarrier() || w->atLdsBarrier()) {
+            // resource barrier: check if resource being waited on is releasd
+            if (w->atResourceBarrier()) {
+                if (!computeUnit.resourceBarReleased(w)) {
+                    DPRINTF(GPUSync, "CU[%d] WF[%d][%d] Wave[%d] - Stalled at "
+                        "RESOURCE barrier\n",
+                        w->computeUnit->cu_id,
+                        w->simdId, w->wfSlotId, w->wfDynId);
+                    *rdyStatus = NRDY_BARRIER_WAIT;
+                    return false;
+                }
+            }
+            // LDS barrier: check if resource being waited on is releasd
+            if (w->atLdsBarrier()) {
+                if (!computeUnit.ldsBarReleased(w)) {
+                    DPRINTF(GPUSync, "CU[%d] WF[%d][%d] Wave[%d] - Stalled at "
+                        "LDS barrier\n",
+                        w->computeUnit->cu_id,
+                        w->simdId, w->wfSlotId, w->wfDynId, w->wgId);
+                    *rdyStatus = NRDY_BARRIER_WAIT;
+                    return false;
+                }
+            }
+            for (const auto& slots : w->computeUnit->wfList) {
+                for (Wavefront* sister : slots) {
+                    Wavefront::status_e wfst = sister->getStatus();
+                    if (wfst != Wavefront::status_e::S_STOPPED &&
+                            w->wgId == sister->wfId)
+                        DPRINTF(GPUSync, "%s <- wgId: %d | wfDynId: %d\n",
+                            w->statusToString(wfst),
+                            sister->wgId, sister->wfDynId);
+                }
+            }
+        }
+        computeUnit.releaseWFsFromResLDSBarrier(w);
+
+        if (w->atResourceBarrier()) {
+            DPRINTF(GPUSync, "WF%d: Res barrier released at wgId: %d\n",
+                w->wfDynId, w->wgId);
+            // rearm resource barrier
+            w->atResourceBarrier(false);
+        }
+        if (w->atLdsBarrier()) {
+            DPRINTF(GPUSync, "WF%d: LDS barrier released at wgId: %d\n",
+                w->wfDynId, w->wgId);
+            // rearm resource barrier
+            w->atLdsBarrier(false);
+        }
+
+    }
+
     // Check WF status: it has to be running
     if (w->getStatus() == Wavefront::S_STOPPED ||
         w->getStatus() == Wavefront::S_RETURNING ||
@@ -151,11 +204,12 @@ ScoreboardCheckStage::ready(Wavefront *w, nonrdytype_e *rdyStatus,
     // checking readiness will be fixed eventually.  In the meantime, let's
     // make sure that we do not silently let an instruction type slip
     // through this logic and always return not ready.
-    if (!(ii->isBarrier() || ii->isNop() || ii->isReturn() || ii->isBranch() ||
+    if (!(ii->isBarrier() || ii->isLdsBarrier() || ii->isResBarrier() ||
+         ii->isNop() || ii->isReturn() || ii->isBranch() ||
          ii->isALU() || ii->isLoad() || ii->isStore() || ii->isAtomic() ||
          ii->isEndOfKernel() || ii->isMemSync() || ii->isFlat() ||
          ii->isFlatGlobal() || ii->isFlatScratch() || ii->isSleep() ||
-         ii->isLocalMem())) {
+         ii->isLocalMem() || ii->isResUpdate())) {
         panic("next instruction: %s is of unknown type\n", ii->disassemble());
     }
 
@@ -163,6 +217,17 @@ ScoreboardCheckStage::ready(Wavefront *w, nonrdytype_e *rdyStatus,
             computeUnit.cu_id, w->simdId, w->wfSlotId, ii->disassemble());
     w->lastInstSeqNum = ii->seqNum();
     w->lastInstDisasm = ii->disassemble();
+
+    // Resource deallocation
+    /* initmate reg pool allocator to deallocate
+     * but wait for pending reads to return (anything else?)
+     */
+
+    if (ii->isResUpdate()) {
+        DPRINTF(GPUSync,
+            "Resource update: updating resource for WF[%d][%d]\n",
+                        w->simdId, w->wfSlotId);
+    }
 
     // Non-scalar (i.e., vector) instructions may use VGPRs
     if (!ii->isScalar()) {
@@ -258,7 +323,10 @@ ScoreboardCheckStage::mapWaveToExeUnit(Wavefront *w)
                ii->isReturn() ||
                ii->isEndOfKernel() ||
                ii->isNop() ||
-               ii->isBarrier()) {
+               ii->isBarrier() ||
+               ii->isResBarrier() ||
+               ii->isLdsBarrier() ||
+               ii->isResUpdate()) {
         if (!ii->isScalar()) {
             return w->simdId;
         } else {

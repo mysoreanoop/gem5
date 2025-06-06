@@ -29,8 +29,10 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include "arch/amdgpu/vega/gpu_registers.hh"
 #include "arch/amdgpu/vega/insts/instructions.hh"
 #include "debug/GPUSync.hh"
+#include "gpu-compute/compute_unit.hh"
 #include "gpu-compute/shader.hh"
 
 namespace gem5
@@ -120,7 +122,7 @@ namespace VegaISA
         DPRINTF(GPUExec, "CU%d: decrease ref ctr WG[%d] to [%d]\n",
             wf->computeUnit->cu_id, wf->wgId, refCount);
 
-        wf->computeUnit->registerManager->freeRegisters(wf);
+        wf->freeRegisterFile();
         wf->computeUnit->stats.completedWfs++;
         wf->computeUnit->activeWaves--;
 
@@ -448,7 +450,16 @@ namespace VegaISA
     Inst_SOPP__S_BARRIER::Inst_SOPP__S_BARRIER(InFmt_SOPP *iFmt)
         : Inst_SOPP(iFmt, "s_barrier")
     {
-        setFlag(MemBarrier);
+        if (iFmt->SIMM16 == 0xf0) {
+            setFlag(ResBarrier);
+            DPRINTF(GPUSync, "Found my VGPR resource barrier: %x\n",
+                        iFmt->SIMM16);
+        } else if (iFmt->SIMM16 == 0xf1) {
+            setFlag(LdsBarrier);
+            DPRINTF(GPUSync, "Found my LDS resource barrier: %x\n",
+                        iFmt->SIMM16);
+        } else
+            setFlag(MemBarrier);
     } // Inst_SOPP__S_BARRIER
 
     Inst_SOPP__S_BARRIER::~Inst_SOPP__S_BARRIER()
@@ -468,7 +479,8 @@ namespace VegaISA
         Wavefront *wf = gpuDynInst->wavefront();
         ComputeUnit *cu = gpuDynInst->computeUnit();
 
-        if (wf->hasBarrier()) {
+        if (wf->hasBarrier() &&
+                !(gpuDynInst->isResBarrier() || gpuDynInst->isLdsBarrier())) {
             int bar_id = wf->barrierId();
             assert(wf->getStatus() == Wavefront::S_BARRIER);
             cu->incNumAtBarrier(bar_id);
@@ -604,6 +616,16 @@ namespace VegaISA
     Inst_SOPP__S_SENDMSG::Inst_SOPP__S_SENDMSG(InFmt_SOPP *iFmt)
         : Inst_SOPP(iFmt, "s_sendmsg")
     {
+        if (((uint16_t)iFmt->OP) == 0x10) {
+            DPRINTF(GPUSync, "Found my update msg: %x\n", iFmt->SIMM16);
+            if ((((uint16_t)iFmt->SIMM16) & 0xff) >= 0xf0 &&
+                    (((uint16_t)iFmt->SIMM16) & 0xff) <= 0xf7) {
+                setFlag(ResUpdate);
+            } else {
+                // for other implementations of s_sendmsg
+                panicUnimplemented();
+            }
+        }
     } // Inst_SOPP__S_SENDMSG
 
     Inst_SOPP__S_SENDMSG::~Inst_SOPP__S_SENDMSG()
@@ -617,7 +639,19 @@ namespace VegaISA
     void
     Inst_SOPP__S_SENDMSG::execute(GPUDynInstPtr gpuDynInst)
     {
-        panicUnimplemented();
+        ComputeUnit *cu = gpuDynInst->computeUnit();
+        Wavefront *wf = gpuDynInst->wavefront();
+        if (gpuDynInst->isResUpdate()) {
+            ScalarRegI16 simm16 = instData.SIMM16;
+            ComputeUnit::RTYPE resource =
+                static_cast<ComputeUnit::RTYPE>((uint16_t)simm16 & 0xff);
+            int delta = ((uint16_t)simm16 & 0xff00) >> 8;
+            DPRINTF(GPUSync, "CU%d WF[%d][%d] S_SENDMSG: %d %d\n",
+                cu->cu_id, wf->simdId, wf->wfSlotId, resource, delta);
+            cu->resourceUpdate(wf, resource, delta);
+        } else {
+            panicUnimplemented();
+        }
     } // execute
     // --- Inst_SOPP__S_SENDMSGHALT class methods ---
 

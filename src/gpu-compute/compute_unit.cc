@@ -172,6 +172,10 @@ ComputeUnit::ComputeUnit(const Params &p) : ClockedObject(p),
             {"v_mfma_f64_4x4x4_4b_f64", 16},
             {"v_mfma_f32_16x16x32_bf8_bf8", 16},
             {"v_mfma_f32_16x16x32_bf8_fp8", 16},
+            {"v_mfma_f32_16x16x32_fp8_bf8", 16},
+            {"v_mfma_f32_16x16x32_fp8_fp8", 16},
+            {"v_mfma_f32_32x32x16_bf8_bf8", 32},
+            {"v_mfma_f32_32x32x16_bf8_fp8", 32},
             {"v_mfma_f32_32x32x16_fp8_bf8", 32},
             {"v_mfma_f32_32x32x16_fp8_fp8", 32},
         }}
@@ -304,6 +308,9 @@ ComputeUnit::ComputeUnit(const Params &p) : ClockedObject(p),
     for (int i = 0; i < numVectorALUs; i++) {
         matrix_core_ready[i] = 0;
     }
+
+    // initialization for lookahead dispatch
+    resourceUpdated(false, -1);
 
     // Used for periodic pipeline prints
     execCycles = 0;
@@ -836,6 +843,17 @@ ComputeUnit::releaseWFsFromBarrier(int bar_id)
     }
 }
 
+void
+ComputeUnit::releaseWFsFromResLDSBarrier(Wavefront *wf)
+{
+    /* wfs can arrive and be satisfied the resource check
+    asynchronously, and turn to S_RUNNING independently of
+    sibling waveronts */
+    assert(wf->getStatus() == Wavefront::S_RES_BARRIER ||
+        wf->getStatus() == Wavefront::S_LDS_BARRIER);
+    wf->setStatus(Wavefront::S_RUNNING);
+}
+
 // Execute one clock worth of work on the ComputeUnit.
 void
 ComputeUnit::exec()
@@ -868,9 +886,19 @@ ComputeUnit::exec()
         execCycles = 0;
     }
 
+    if (resourceUpdated()) {
+        /* potential optimization staggering wg launch
+         */
+        (shader->dispatcher()).scheduleDispatch();
+    }
+
     // Put this CU to sleep if there is no more work to be done.
     if (!isDone()) {
-        schedule(tickEvent, nextCycle());
+        if (!tickEvent.scheduled()) {
+            schedule(tickEvent, nextCycle());
+        } else {
+            DPRINTF(GPUDisp, "CU event already scheduled\n");
+        }
     } else {
         shader->notifyCuSleep();
         DPRINTF(GPUDisp, "CU%d: Going to sleep\n", cu_id);
@@ -2478,6 +2506,104 @@ ComputeUnit::LDSPort::recvReqRetry()
             DPRINTF(GPUTLB, ": LDS send successful\n");
             retries.pop();
         }
+    }
+}
+
+bool
+ComputeUnit::ldsBarReleased(Wavefront *wf)
+{
+    bool sat(lds.tryUpgrade(wf->dispatchId, wf->wgId));
+    if (sat)
+        DPRINTF(GPUSync, "lds barrier; upgraded\n");
+    else
+        DPRINTF(GPUSync, "lds barrier; stall\n");
+    return sat;
+}
+
+bool
+ComputeUnit::resourceBarReleased(Wavefront *wf)
+{
+    int currWgId = wf->wgId;
+    bool sat(registerManager->canExtend(wf));
+    for (const auto& jsimd : wf->computeUnit->wfList) {
+        for (Wavefront* siblingWf : jsimd) {
+            if (siblingWf->wgId == currWgId) {
+                // is sibling satisfied?
+                Wavefront::status_e wfst = siblingWf->getStatus();
+
+                // release if already fully alloc'd
+                bool need(siblingWf->reservedScalarRegs < siblingWf->maxSgprs
+                      || siblingWf->reservedVectorRegs < siblingWf->maxVgprs);
+                if (need) {
+                    bool siblingSat(registerManager->canExtend(siblingWf));
+                    sat &= siblingSat;
+                }
+                DPRINTF(GPUSync, "sibling WF: %s (wgId: %d | wfDynId: %d)"
+                    "| %d(%d), %d(%d) | %s\n",
+                    wf->statusToString(wfst),
+                    siblingWf->wgId, siblingWf->wfDynId,
+                    siblingWf->reservedScalarRegs, siblingWf->maxSgprs,
+                    siblingWf->reservedVectorRegs, siblingWf->maxVgprs,
+                    need ? (sat ? "can extend" : "cannot extend !")
+                        : "already fully allocd"
+                );
+
+            }
+        }
+    }
+    return sat;
+}
+
+void
+ComputeUnit::resourceUpdate(Wavefront *wf, RTYPE resource, int delta)
+{
+    // executed once per wavefront
+    switch (resource) {
+        case VGPR_DOWNGRADE:
+        case SGPR_DOWNGRADE: // deltas required
+            DPRINTF(GPUSync, "downgrade %s by %d\n",
+                    resource == VGPR_DOWNGRADE ? "vgpr" : "sgpr", delta);
+
+            registerManager->partialFreeRegisters(wf,
+                                resource == VGPR_DOWNGRADE ? delta : 0,
+                                resource == SGPR_DOWNGRADE ? delta : 0);
+            // probably low perf to do this here;
+            // resourceUpdated(true);
+            break;
+        case VGPR_UPGRADE:
+        case SGPR_UPGRADE: // no delta necessary
+            // extends the allocated regsiters to full allocation
+            DPRINTF(GPUSync, "upgrade %s\n",
+                    resource == VGPR_UPGRADE ? "vgpr" : "sgpr");
+            // original WF whose registers were reserved for extension
+            // by the WF-in-question would be auto reassigned if relinquished
+            // by now, and the resource barrier will take care of waiting
+            // until then
+            registerManager->extendRegisters(wf);
+            break;
+        case VGPR_TERMINAL:
+            DPRINTF(GPUSync, "resource terminal\n");
+            registerManager->markTerminal(wf);
+            // TODO: guaranteed triggers dispatcher exec() (probly low perf)
+            resourceUpdated(true, wf->wfDynId);
+            break;
+        case LDS_DOWNGRADE:
+            DPRINTF(GPULDS, "LDS downgrade, delta %d pct\n", delta);
+            lds.downgrade(wf->dispatchId, wf->wgId, wf->pc(), delta);
+            break;
+        case LDS_UPGRADE:
+            DPRINTF(GPULDS, "LDS upgrade, automatic delta\n");
+            // do nothing, the allocation transfer automatically
+            break;
+        case LDS_TERMINAL:
+            DPRINTF(GPULDS, "LDS terminal\n");
+            lds.markTerminal(wf->dispatchId, wf->wgId);
+            // functionally correct, but possibly low perf;
+            // could perhaps wait for all waves to become terminal
+            resourceUpdated(true, wf->wfDynId);
+            break;
+        default:
+            panic_if(true, "Unknown resource type for update!");
     }
 }
 

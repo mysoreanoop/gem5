@@ -50,6 +50,9 @@ class GPUStaticInstFlags(Enum):
         "Sleep",  # Is a sleep instruction
         # Memory ops
         "MemBarrier",  # Barrier instruction
+        "ResBarrier",  # Resource barrier instruction (adds to MemBarrier)
+        "LdsBarrier",  # LDS barrier instruction (adds to MemBarrier)
+        "ResUpdate",  # Resource update (dealloc) instruction
         "MemSync",  # Synchronizing instruction
         "MemoryRef",  # References memory (load, store, or atomic)
         "Flat",  # Flat memory op

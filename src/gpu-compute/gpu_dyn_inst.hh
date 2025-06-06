@@ -230,6 +230,9 @@ class GPUDynInst : public GPUExecContext
     bool isSleep() const;
 
     bool isBarrier() const;
+    bool isResBarrier() const;
+    bool isLdsBarrier() const;
+    bool isResUpdate() const;
     bool isMemSync() const;
     bool isMemRef() const;
     bool isFlat() const;

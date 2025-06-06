@@ -52,6 +52,7 @@
 #include "gpu-compute/hsa_queue_entry.hh"
 #include "gpu-compute/lds_state.hh"
 #include "gpu-compute/misc.hh"
+#include "gpu-compute/register_manager_policy.hh"
 #include "params/Wavefront.hh"
 #include "sim/sim_object.hh"
 
@@ -88,9 +89,11 @@ class Wavefront : public SimObject
          */
         S_WAITCNT,
         /**
-         * WF is stalled at a barrier.
+         * WF is stalled at a barrier. Includes resource barrier
          */
-        S_BARRIER
+        S_BARRIER,
+        S_RES_BARRIER,
+        S_LDS_BARRIER,
     };
 
     // gfx version wavefront is executing
@@ -154,6 +157,8 @@ class Wavefront : public SimObject
     bool isOldestInstScalarALU();
     bool isOldestInstScalarMem();
     bool isOldestInstBarrier();
+    bool isOldestInstResBarrier();
+    bool isOldestInstLdsBarrier();
 
     // used for passing spill address to DDInstGPU
     std::vector<Addr> lastAddr;
@@ -251,6 +256,11 @@ class Wavefront : public SimObject
     // - counts are reset to 0 for each dynamic wavefront launched
     std::vector<int> vecReads;
 
+    std::vector<uint64_t> first_kiss;
+    std::vector<uint64_t> last_kiss;
+    std::vector<uint64_t> touch_0;
+    std::vector<uint64_t> touch_1;
+
     void initRegState(HSAQueueEntry *task, int wgSizeInWorkItems);
 
     // context for save/restore
@@ -328,6 +338,12 @@ class Wavefront : public SimObject
     bool hasBarrier() const;
     void releaseBarrier();
 
+    void markRegion(std::string& region_name, uint32_t flags);
+
+    bool atResourceBarrier() { return _atResourceBarrier; }
+    void atResourceBarrier(bool f) { _atResourceBarrier = f; }
+    bool atLdsBarrier() { return _atLdsBarrier; }
+    void atLdsBarrier(bool f) { _atLdsBarrier = f; }
     // For periodic progress prints
     void printProgress();
 
@@ -336,10 +352,14 @@ class Wavefront : public SimObject
     std::string lastInstDisasm;
     std::string lastInstRdyStatus;
     bool lastVrfStatus, lastSrfStatus;
-
-    void markRegion(std::string& region_name, uint32_t flags);
+    Tick prologue_time = 0;
+    Tick epilogue_time = 0;
+    double bestWfOverlap = 0.0;
 
   private:
+    bool _atResourceBarrier;
+    bool _atLdsBarrier;
+
     TheGpuISA::GPUISA _gpuISA;
 
     void reserveGmResource(GPUDynInstPtr ii);

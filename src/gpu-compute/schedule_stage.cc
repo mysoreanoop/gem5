@@ -326,6 +326,15 @@ ScheduleStage::addToSchList(int exeType, const GPUDynInstPtr &gpu_dyn_inst)
         if (wf->isOldestInstBarrier() && wf->hasBarrier()) {
             wf->setStatus(Wavefront::S_BARRIER);
         }
+        if (wf->isOldestInstResBarrier()) {
+            wf->setStatus(Wavefront::S_RES_BARRIER);
+            wf->atResourceBarrier(true);
+        }
+        if (wf->isOldestInstLdsBarrier()) {
+            wf->setStatus(Wavefront::S_LDS_BARRIER);
+            wf->atLdsBarrier(true);
+        }
+
         if (wf->isOldestInstWaitcnt()) {
             wf->setStatus(Wavefront::S_WAITCNT);
         }
@@ -451,8 +460,9 @@ ScheduleStage::dispatchReady(const GPUDynInstPtr &gpu_dyn_inst)
             stats.dispNrdyStalls[SCH_SCALAR_ALU_NRDY]++;
             return false;
         }
-    } else if (gpu_dyn_inst->isBarrier() || gpu_dyn_inst->isBranch()
-               || gpu_dyn_inst->isALU()) {
+    } else if (gpu_dyn_inst->isBarrier() || gpu_dyn_inst->isResBarrier()
+               || gpu_dyn_inst->isLdsBarrier() || gpu_dyn_inst->isBranch()
+               || gpu_dyn_inst->isALU() || gpu_dyn_inst->isResUpdate()) {
         // Barrier, Branch, or ALU instruction
         if (gpu_dyn_inst->isScalar() && !scalarAluRdy) {
             stats.dispNrdyStalls[SCH_SCALAR_ALU_NRDY]++;

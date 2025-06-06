@@ -32,9 +32,11 @@
 #include "gpu-compute/wavefront.hh"
 
 #include "base/bitfield.hh"
+#include "debug/GPUDisp.hh"
 #include "debug/GPUExec.hh"
 #include "debug/GPUInitAbi.hh"
 #include "debug/GPUTrace.hh"
+#include "debug/GPUWgLatency.hh"
 #include "debug/WavefrontStack.hh"
 #include "gpu-compute/compute_unit.hh"
 #include "gpu-compute/gpu_dyn_inst.hh"
@@ -61,6 +63,8 @@ Wavefront::Wavefront(const Params &p)
     reservedScalarRegs = 0;
     startVgprIndex = 0;
     startSgprIndex = 0;
+    vgprPtr = 0;
+    sgprPtr = 0;
     outstandingReqs = 0;
     outstandingReqsWrGm = 0;
     outstandingReqsWrLm = 0;
@@ -115,6 +119,8 @@ Wavefront::init()
     reservedScalarRegs = 0;
     startVgprIndex = 0;
     startSgprIndex = 0;
+    vgprPtr = 0;
+    sgprPtr = 0;
 
     scalarAlu = computeUnit->mapWaveToScalarAlu(this);
     scalarAluGlobalIdx = computeUnit->mapWaveToScalarAluGlobalIdx(this);
@@ -353,7 +359,7 @@ Wavefront::initRegState(HSAQueueEntry *task, int wgSizeInWorkItems)
                 break;
               case KernargPreload:
                 DPRINTF(GPUInitAbi, "Preload %d user SGPRs starting at virtual"
-                        " SGPR s[%d]\n", task->preloadLength(), regInitIdx);
+                        " SGPR %d\n", task->preloadLength(), regInitIdx);
 
                 for (int idx = 0; idx < task->preloadLength(); ++idx) {
                     uint32_t finalValue = task->preloadArgs()[idx];
@@ -606,7 +612,8 @@ Wavefront::setStatus(status_e newStatus)
     if (computeUnit->idleCUTimeout > 0) {
         // Wavefront's status transitions to stalled or stopped
         if ((newStatus == S_STOPPED || newStatus == S_STALLED ||
-             newStatus == S_WAITCNT || newStatus == S_BARRIER) &&
+             newStatus == S_WAITCNT || newStatus == S_BARRIER ||
+             newStatus == S_RES_BARRIER || newStatus == S_LDS_BARRIER) &&
             (status != newStatus)) {
             computeUnit->idleWfs++;
             assert(computeUnit->idleWfs <=
@@ -618,8 +625,9 @@ Wavefront::setStatus(status_e newStatus)
             // Wavefront's status transitions to an active state (from
             // a stopped or stalled state)
         } else if ((status == S_STOPPED || status == S_STALLED ||
-                    status == S_WAITCNT || status == S_BARRIER) &&
-                   (status != newStatus)) {
+                    status == S_WAITCNT || status == S_BARRIER ||
+                    status == S_RES_BARRIER || status == S_LDS_BARRIER)
+                    && (status != newStatus)) {
             // if all WFs in the CU were idle then check if the idleness
             // period exceeded the timeout threshold
             if (computeUnit->idleWfs ==
@@ -654,6 +662,12 @@ Wavefront::setStatus(status_e newStatus)
         }
 
         if (idle_transition) {
+            if (epilogue_time != 0) {
+                bestWfOverlap = static_cast<double>(curTick() - epilogue_time)
+                            / (curTick() - lastWfDynStart);
+                DPRINTF(GPUWgLatency, "Best overlap: %lf\n", bestWfOverlap);
+            }
+
             std::string slice_text = "WF " + std::to_string(wfDynId);
             auto slice = perfettoSlice("WF", perfettoTrackName,
                     lastWfDynStart, curTick(), slice_text);
@@ -665,6 +679,8 @@ Wavefront::setStatus(status_e newStatus)
             computeUnit->shader->writePerfettoLog(slice, dyn_info);
 
             lastWfDynStart = 0;
+            epilogue_time = 0;
+            prologue_time = 0;
             lastWfDynId = 0;
         }
     }
@@ -681,6 +697,11 @@ Wavefront::start(uint64_t _wf_dyn_id, Addr init_pc)
     status = S_RUNNING;
 
     vecReads.resize(maxVgprs, 0);
+    touch_0.resize(maxVgprs, 0);
+    touch_1.resize(maxVgprs, 0);
+    first_kiss.resize(maxVgprs, 0);
+    last_kiss.resize(maxVgprs, 0);
+
 
     // Create an "instant" in perfetto to show starting WF.
     if (computeUnit->shader->usePerfettoWfDynId) {
@@ -776,6 +797,31 @@ Wavefront::isOldestInstVectorALU()
     if (status != S_STOPPED && !ii->isScalar() && (ii->isNop() ||
         ii->isReturn() || ii->isBranch() || ii->isALU() || ii->isEndOfKernel()
         || (ii->isKernArgSeg() && ii->isLoad()))) {
+        return true;
+    }
+
+    return false;
+}
+bool
+Wavefront::isOldestInstLdsBarrier()
+{
+    assert(!instructionBuffer.empty());
+    GPUDynInstPtr ii = instructionBuffer.front();
+
+    if (status != S_STOPPED && ii->isLdsBarrier()) {
+        return true;
+    }
+
+    return false;
+}
+
+bool
+Wavefront::isOldestInstResBarrier()
+{
+    assert(!instructionBuffer.empty());
+    GPUDynInstPtr ii = instructionBuffer.front();
+
+    if (status != S_STOPPED && ii->isResBarrier()) {
         return true;
     }
 
@@ -963,7 +1009,9 @@ Wavefront::reserveResources()
             execUnitId = scalarAluGlobalIdx;
         }
         // this is to enforce a fixed number of cycles per issue slot per SIMD
-    } else if (ii->isBarrier()) {
+    } else if (ii->isBarrier() || ii->isLdsBarrier() || ii->isResBarrier()
+                 || ii->isResUpdate()) {
+        DPRINTF(GPUExec, "Found ResUpdate in process\n");
         execUnitId = ii->isScalar() ? scalarAluGlobalIdx : simdId;
     } else if (ii->isFlat()) {
         assert(!ii->isScalar());
@@ -985,7 +1033,8 @@ Wavefront::reserveResources()
                  "Scalar instructions can not access Private memory!!!");
         reserveGmResource(ii);
     } else {
-        panic("reserveResources -> Couldn't process op!\n");
+        panic("reserveResources -> Couldn't process op! %d %d\n",
+                ii->isScalar(), ii->isResUpdate());
     }
 
     if (execUnitId != -1) {
@@ -1115,6 +1164,10 @@ Wavefront::exec()
             }
             // increment number of reads to this register
             vecReads[virtIdx]++;
+            touch_1[virtIdx] = curTick();
+
+            if (touch_0[virtIdx] == 0)
+                touch_0[virtIdx] = curTick();
         }
     }
 
@@ -1128,6 +1181,9 @@ Wavefront::exec()
             }
             // on a write, reset count of reads to 0
             vecReads[virtIdx] = 0;
+            touch_1[virtIdx] = curTick();
+            if (touch_0[virtIdx] == 0)
+                touch_0[virtIdx] = curTick();
 
             rawDist[virtIdx] = stats.numInstrExecuted.value();
         }
@@ -1269,7 +1325,8 @@ Wavefront::exec()
     if (ii->isALU() || ii->isSpecialOp() ||
         ii->isBranch() || ii->isNop() ||
         (ii->isKernArgSeg() && ii->isLoad()) ||
-        ii->isArgSeg() || ii->isEndOfKernel() || ii->isReturn()) {
+        ii->isArgSeg() || ii->isEndOfKernel() || ii->isReturn() ||
+        ii->isResUpdate()) {
         // this is to enforce a fixed number of cycles per issue slot per SIMD
         if (!ii->isScalar()) {
             computeUnit->vectorALUs[simdId].set(computeUnit->
@@ -1279,7 +1336,7 @@ Wavefront::exec()
                 cyclesToTicks(computeUnit->issuePeriod));
         }
     // Barrier on Scalar ALU
-    } else if (ii->isBarrier()) {
+    } else if (ii->isBarrier() || ii->isLdsBarrier() || ii->isResBarrier()) {
         computeUnit->scalarALUs[scalarAlu].set(computeUnit->
             cyclesToTicks(computeUnit->issuePeriod));
     // GM or Flat as GM Load
@@ -1686,16 +1743,24 @@ void
 Wavefront::freeRegisterFile()
 {
     /* clear busy registers */
-    for (int i=0; i < maxVgprs; i++) {
+    for (int i=0; i < reservedVectorRegs; i++) {
         int vgprIdx = computeUnit->registerManager->mapVgpr(this, i);
         computeUnit->vrf[simdId]->markReg(vgprIdx, false);
     }
 
     /* Free registers used by this wavefront */
-    uint32_t endIndex = (startVgprIndex + reservedVectorRegs - 1) %
-                         computeUnit->vrf[simdId]->numRegs();
-    computeUnit->registerManager->vrfPoolMgrs[simdId]->
-        freeRegion(startVgprIndex, endIndex);
+    computeUnit->registerManager->
+        freeRegisters(this);
+         // TODO originally just VGPRs were cleared
+         // -- any specific reason?
+
+    DPRINTF(GPUDisp, "Touches:\n");
+    for (int i = 0; i < touch_0.size(); i++) {
+        DPRINTF(GPUDisp, "v%d Start: %" PRId64 " (%" PRId64 ") | "
+            " End: %" PRId64 " (%" PRId64 ")\n",
+            i, touch_0[i], first_kiss[i],
+            touch_1[i], last_kiss[i]);
+    }
 }
 
 void
@@ -1746,6 +1811,8 @@ Wavefront::statusToString(status_e status)
         case S_STALLED_SLEEP: return "S_STALLED_SLEEP";
         case S_WAITCNT: return "S_WAITCNT";
         case S_BARRIER: return "S_BARRIER";
+        case S_LDS_BARRIER: return "S_LDS_BARRIER";
+        case S_RES_BARRIER: return "S_RES_BARRIER";
         default: break;
     }
 
@@ -1800,6 +1867,7 @@ Wavefront::markRegion(std::string& region_name, uint32_t flags)
             warn("Region %s already started, ignoring start region\n",
                     region_name.c_str());
         } else if (flags == 1) {
+            epilogue_time = curTick();
             if (computeUnit->shader->usePerfettoWfDynId) {
                 auto slice = perfettoSlice("WF", perfettoTrackName,
                         regionMap[region_name], curTick(), region_name);
@@ -1815,6 +1883,7 @@ Wavefront::markRegion(std::string& region_name, uint32_t flags)
     } else {
         if (flags == 0) {
             regionMap.insert({region_name, curTick()});
+            prologue_time = curTick();
         } else if (flags == 1) {
             // Ending a region that has not begun?
             warn("Region %s has not started, ignoring end region\n",

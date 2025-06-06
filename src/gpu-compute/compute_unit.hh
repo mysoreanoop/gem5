@@ -43,6 +43,7 @@
 #include "base/stats/group.hh"
 #include "base/types.hh"
 #include "config/the_gpu_isa.hh"
+#include "debug/GPUSync.hh"
 #include "enums/GfxVersion.hh"
 #include "enums/PrefetchType.hh"
 #include "gpu-compute/comm.hh"
@@ -432,6 +433,25 @@ class ComputeUnit : public ClockedObject
 
     void resetRegisterPool();
 
+    enum RTYPE
+    {
+        VGPR_UPGRADE = 240, // 0xf0
+        VGPR_DOWNGRADE,
+        SGPR_UPGRADE,
+        SGPR_DOWNGRADE,
+        LDS_UPGRADE, // for both LDS operations, delta in (int)% of full alloc
+        LDS_DOWNGRADE,
+        VGPR_TERMINAL,
+        LDS_TERMINAL
+    };
+
+    // update requested by WF, for upgrade, downgrade, or terminality
+    void resourceUpdate(Wavefront *wf, RTYPE resource, int delta);
+
+    // checks register_manager
+    bool resourceBarReleased(Wavefront *wf);
+    bool ldsBarReleased(Wavefront *wf);
+
   private:
     WFBarrier&
     barrierSlot(int bar_id)
@@ -460,7 +480,18 @@ class ComputeUnit : public ClockedObject
     void decMaxBarrierCnt(int bar_id);
     void releaseBarrier(int bar_id);
     void releaseWFsFromBarrier(int bar_id);
+    void releaseWFsFromResLDSBarrier(Wavefront *wf);
     int numBarrierSlots() const { return _numBarrierSlots; }
+    int resourceUpdatedWfDynId() {
+      return _resourceUpdated_wfDynId;
+    }
+    bool resourceUpdated() {
+      return _resourceUpdated;
+    }
+    void resourceUpdated(bool st, int wfdynid) {
+      _resourceUpdated = st;
+      _resourceUpdated_wfDynId = wfdynid;
+    }
 
     template<typename c0, typename c1>
     void doSmReturn(GPUDynInstPtr gpuDynInst);
@@ -998,6 +1029,10 @@ class ComputeUnit : public ClockedObject
     int cacheLineBits;
     InstSeqNum globalSeqNum;
     int wavefrontSize;
+    // TODO potentially struct to conditionally
+    // try dispatching based on resource freed
+    bool _resourceUpdated;
+    int _resourceUpdated_wfDynId;
     uint64_t execCycles;
 
     /**
