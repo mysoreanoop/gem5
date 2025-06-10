@@ -57,7 +57,7 @@ BlockPoolManager::resetRegion(const int & regsPerSimd){
 int BlockPoolManager::calculateNumBlocksNeeded(const uint32_t size) const {
     assert (size > 0 && size < m_poolSize);
     // ceiling division
-    return (size + m_blockSize - 1) / m_blockSize;
+    return divCeil(size, m_blockSize);
 }
 
 /* count blocks with a specific status;
