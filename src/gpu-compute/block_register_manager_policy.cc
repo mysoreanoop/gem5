@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016 Advanced Micro Devices, Inc.
+ * Copyright (c) 2025 Advanced Micro Devices, Inc.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without

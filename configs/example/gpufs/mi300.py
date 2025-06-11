@@ -57,7 +57,6 @@ export LD_LIBRARY_PATH=/opt/rocm/lib:$LD_LIBRARY_PATH
 export HSA_ENABLE_INTERRUPT=0
 export HCC_AMDGPU_TARGET=gfx942
 export HSA_OVERRIDE_GFX_VERSION="9.4.2"
-export AMD_LOG_LEVEL=4
 dmesg -n8
 cat /proc/cpuinfo
 dd if=/root/roms/mi200.rom of=/dev/mem bs=1k seek=768 count=128

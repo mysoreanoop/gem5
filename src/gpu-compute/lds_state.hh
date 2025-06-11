@@ -583,15 +583,15 @@ class LdsState: public ClockedObject
     at a given time, F+T+A+C is constant (no R there)
     a free chunk can get allocated (F->A)
     allocated can get terminal (A->T) or free (A->F)
-    a terminal chunk can get reserved by a lookahead Wg,
+    a terminal chunk can get reserved (R) by a lookahead Wg,
       but the chunk remains (T)
+    no more reservation than available terminal chunks
     a terminal chunk can get freed if no reservations exist (T->F)
-      or Ceded to reservations (T->E)
-    if more terminal chunk is freed without sufficient reservations,
-      part of it is E, and rest F
+      or Ceded to reservations (T->C)
+    if more terminal chunk is freed than existing reservations,
+      part of it is C, and rest F
     a lookahead wg can launch with some F and some T (by reserving them)
-    at a LDS resource barrier an Ceded
-      chunk can get allocated (E->A)
+    at a LDS resource barrier a Ceded chunk can get allocated (C->A)
 */
     int bytesFree() {
       return maximumSize - bytesAllocated - bytesTerminal - bytesCeded;
@@ -698,19 +698,15 @@ class LdsState: public ClockedObject
         }
     }
 
-    // only the last wf can mark terminal in this implementation
-    // this is because when a termination hint follows downgrade
-    // and downgrade waits for the last wf to post
-    // there can be cases where the first wf could not
-    //    downgrade but mark terminal
-    //    before the last wf can downgrade,
-    //    which violates implicit assumptions
+    /* only the last wf can mark terminal or downgrade in this impl
+     * this is because downgrade also waits for the last wf to downgrade
+     */
     void
     markTerminal(uint32_t dispatchId, uint32_t wgId)
     {
       if (!chunkMap[dispatchId][wgId].isTerminal()) {
         // marking terminal first time
-        DPRINTF(GPULDS, "marking wgId %d temrinal, size: %d\n",
+        DPRINTF(GPULDS, "marking wgId %d terminal, size: %d\n",
           wgId, (chunkMap[dispatchId][wgId]).size());
         if (chunkMap[dispatchId][wgId].markTerminal()) {
           bytesTerminal += (chunkMap[dispatchId][wgId]).size();
@@ -771,11 +767,13 @@ class LdsState: public ClockedObject
       }
     }
 
+    // only last wf can downgrade; not before
     void
     downgrade(uint32_t dispatchId, uint32_t wgId,
       long long int pc, int32_t pct)
     {
-      // PS Make sure to never downgrade after markTerminal
+      // make sure to never downgrade after markTerminal
+      assert(!chunkMap[dispatchId][wgId].isTerminal());
 
       int original_size = chunkMap[dispatchId][wgId].size();
       int final_size = (int) (((float)1 - (float)pct/(float)100)

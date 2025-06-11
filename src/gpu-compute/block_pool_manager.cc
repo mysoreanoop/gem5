@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2020 Advanced Micro Devices, Inc.
+ * Copyright (c) 2025 Advanced Micro Devices, Inc.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -74,7 +74,10 @@ int BlockPoolManager::countBlocksWithStatus(BlockStatus status) const {
     return count;
 }
 
-// gets indices of blocks overlapping a given address range
+// gets indices of blocks overlapping a given virtual address range;
+// does this by iterating on granted blocks, incrementing a virtual
+// base until a block is found to overlap the supplied virtual range;
+// overlapping block ids are collected and returneds;
 std::vector<int> inline BlockPoolManager::getBlockIdsInRange(
             uint32_t virtualStart, uint32_t virtualEnd,
             AllocationRecord& record) const {
@@ -406,7 +409,13 @@ void BlockPoolManager::extendRegion(int id) {
 }
 
 
-// translate virtual offset to physical address
+/* translate virtual offset to physical address
+ * first tries to translate if the offset is within granted blocks
+ * else tries to translate by combining granted and reserved blocks
+ *   with loose constraints. this happens when the decode unit tries
+ *   to decode a register but an earlier resource barrier hasn't yet
+ *   released.
+ */
 uint32_t BlockPoolManager::translate(int id,
                             uint32_t virtualOffset) const {
     // find the allocation record
@@ -432,10 +441,9 @@ uint32_t BlockPoolManager::translate(int id,
                          b.ownerId != record.id) {
                     record.print();
                     printStatus();
-                    printf("Block free or not owned; "
-                    "owner: %d, extpected %d, index %d\n",
-                    b.ownerId, record.id, virtualOffset);
-                    fatal("translate failed\n");
+                    fatal("Translate failed cause block not owned; "
+                            "owner: %d, expected %d, index %d\n",
+                            b.ownerId, record.id, virtualOffset);
                 }
 
                 // calculate the offset within this specific physical block
@@ -471,22 +479,20 @@ uint32_t BlockPoolManager::translate(int id,
            assert(checkBId(bId));
            if (virtualOffset >= currentVirtualBase &&
                      virtualOffset < currentVirtualBase + m_blockSize) {
-               // Found the correct physical block
+               // found the correct physical block
                const RegisterBlock& b = m_pool[bId];
 
-                // Ensure the block is either not free and owned
-                // Or terminal and reserved for
+                // ensure the block is either not free and owned
+                // or terminal and reserved for
                 if (!((b.status != BlockStatus::FREE && b.ownerId == record.id)
                         || (b.status == BlockStatus::RESERVED &&
                         b.reserverId == record.id))
                     ) {
                     record.print();
                     printStatus();
-                    printf("Block either not free and owned, "
-                        "or, reserved by not this requestor;"
-                        "owner %d, requested by %d, index %d\n",
-                    b.ownerId, record.id, virtualOffset);
-                    fatal("translate failed\n");
+                    fatal("Translate failed cause block not owned; "
+                            "owner: %d, expected %d, index %d\n",
+                            b.ownerId, record.id, virtualOffset);
                 }
                // calculate the offset within this specific physical block
                uint32_t offsetInBlock = virtualOffset - currentVirtualBase;
