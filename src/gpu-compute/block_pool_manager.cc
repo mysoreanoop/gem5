@@ -34,6 +34,7 @@
 
 #include <algorithm>
 
+#include "base/intmath.hh"
 #include "base/logging.hh"
 #include "base/trace.hh"
 #include "debug/GPUVRF.hh"
@@ -161,19 +162,16 @@ uint32_t BlockPoolManager::allocateRegion(
                 int numBlocksNeeded = calculateNumBlocksNeeded(size);
     DPRINTF(GPUVRF, "Allocating region; num blocks needed: %d\n",
             numBlocksNeeded);
-    /* assumption: between calling canAllocate and allocate,
-        there cannot be interceding requests, the caller only calls allocate
-        if canAllocate returns true
+    /* assumption: b/w calling getTotAllocableWfsForRegsUsed and allocate,
+        there cannot be interceding requests
     */
 
     // find the required number of free blocks
     std::vector<int> freeBlocks = findBlocks(numBlocksNeeded,
                                             BlockStatus::FREE);
     if (freeBlocks.size() < numBlocksNeeded) {
-        DPRINTF(GPUVRF, "Only call allocate for no more than "
-            "as many blocks as can be allocated\n");
-        *grantedPoolSize = 0;
-        return NO_OWNER_ID;
+        panic("Only call allocateRegion for no more than "
+                "as many blocks as can be allocated\n");
     }
 
     // allocation
@@ -196,9 +194,6 @@ uint32_t BlockPoolManager::allocateRegion(
 uint32_t BlockPoolManager::allocateEarly(
         uint32_t fullSize, uint32_t earlySize,
         uint32_t *grantedPoolSize, uint32_t *reservedPoolSize) {
-    /* assumption: canAllocateEarly could potentially be fully allocated
-        CU first tries to allocate fully, failing which comes here
-    */
    int minBlocksNeeded = calculateNumBlocksNeeded(earlySize);
    int extBlocksNeeded = (earlySize == fullSize) ? 0 :
                         calculateNumBlocksNeeded(fullSize-earlySize);
@@ -277,7 +272,7 @@ void inline BlockPoolManager::processBlockRelease(int bId) {
     avirtual address range within the requestor's view
 */
 void BlockPoolManager::freeRegion(uint32_t id, uint32_t virtualStart) {
-    // 1. Find the allocation record
+    // find the allocation record
     auto allocIt = m_activeAllocations.find((int)id);
     if (allocIt == m_activeAllocations.end()) {
         printStatus();
@@ -349,8 +344,8 @@ bool BlockPoolManager::markRegionTerminal(int id, uint32_t virtualStart) {
 
     for (int b : indicesInRange) {
         // check if the block index is in the granted set for this request ID
-        m_pool[b].mark(BlockStatus::TERMINAL);
         assert (m_pool[b].reserverId == NO_OWNER_ID);
+        m_pool[b].mark(BlockStatus::TERMINAL);
     }
 
     return true;

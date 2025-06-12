@@ -99,8 +99,23 @@ class HSAQueueEntry
         if (gfx_version == GfxVersion::gfx90a ||
             gfx_version == GfxVersion::gfx942) {
             numVgprs = (akc->granulated_workitem_vgpr_count + 1) * 8;
+            // FIXME: figure out a way to integrate this in kd
+            // numEarlyVgprs = (akc->early_vgpr_count + 1);
+            // numEarlySgprs = (akc->early_sgpr_count + 1);
+            // pctEarlyLDS = (akc->pct_early_lds);
+            numEarlySgprs = 40;
+            numEarlyVgprs = 93;
+            pctEarlyLDS = 0;
+            // enables lookahead dispatch
+            lookahead_disp = akc->use_dynamic_stack;
         } else {
             numVgprs = (akc->granulated_workitem_vgpr_count + 1) * 4;
+            // untested
+            // numEarlyVgprs = (akc->early_vgpr_count + 1);
+            // numEarlySgprs = (akc->early_sgpr_count + 1);
+            // pctEarlyLDS = (akc->pct_early_lds);
+            // enables lookahead dispatch
+            lookahead_disp = akc->use_dynamic_stack;
         }
 
         // SGPR allocation granulary is 16 in GFX9
@@ -161,6 +176,29 @@ class HSAQueueEntry
     numVectorRegs() const
     {
         return numVgprs;
+    }
+
+    int
+    numEarlyVectorRegs() const
+    {
+        return numEarlyVgprs;
+    }
+
+    int
+    numEarlyScalarRegs() const
+    {
+        return numEarlySgprs;
+    }
+
+    int
+    pctEarlyLDSBytes() const
+    {
+        return pctEarlyLDS;    }
+
+    bool
+    isLookaheadDisp() const
+    {
+        return lookahead_disp;
     }
 
     int
@@ -491,6 +529,12 @@ class HSAQueueEntry
     std::array<int, MAX_DIM> _gridSize;
     // total number of VGPRs per work-item
     int numVgprs;
+    // early allocation
+    int numEarlyVgprs;
+    int numEarlySgprs;
+    int pctEarlyLDS;
+    int lookahead_disp;
+
     // total number of SGPRs per wavefront
     int numSgprs;
     // id of AQL queue in which this entry is placed

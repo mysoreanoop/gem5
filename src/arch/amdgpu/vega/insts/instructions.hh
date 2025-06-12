@@ -44929,16 +44929,13 @@ namespace VegaISA
       public:
         Inst_VOP1__S_GEM5_MARK_REGION(InFmt_VOP1*);
         ~Inst_VOP1__S_GEM5_MARK_REGION();
-
         int
         getNumOperands() override
         {
             return numDstRegOperands() + numSrcRegOperands();
         } // getNumOperands
-
         int numDstRegOperands() override { return 1; }
         int numSrcRegOperands() override { return 1; }
-
         int
         getOperandSize(int opIdx) override
         {
@@ -44952,9 +44949,65 @@ namespace VegaISA
                 return -1;
             }
         } // getOperandSize
-
         void execute(GPUDynInstPtr) override;
     }; // Inst_VOP1__S_GEM5_MARK_REGION
+
+    class Inst_VOP1__S_GEM5_MARK_REGION_START : public Inst_VOP1
+    {
+      public:
+        Inst_VOP1__S_GEM5_MARK_REGION_START(InFmt_VOP1*);
+        ~Inst_VOP1__S_GEM5_MARK_REGION_START();
+        int
+        getNumOperands() override
+        {
+            return numDstRegOperands() + numSrcRegOperands();
+        } // getNumOperands
+        int numDstRegOperands() override { return 1; }
+        int numSrcRegOperands() override { return 1; }
+        int
+        getOperandSize(int opIdx) override
+        {
+            switch (opIdx) {
+              case 0: //ssrc
+                return 4;
+              case 1: //sdst
+                return 4;
+              default:
+                fatal("op idx %i out of bounds\n", opIdx);
+                return -1;
+            }
+        } // getOperandSize
+        void execute(GPUDynInstPtr) override;
+    }; // Inst_VOP1__S_GEM5_MARK_REGION_START
+
+    class Inst_VOP1__S_GEM5_MARK_REGION_END : public Inst_VOP1
+    {
+      public:
+        Inst_VOP1__S_GEM5_MARK_REGION_END(InFmt_VOP1*);
+        ~Inst_VOP1__S_GEM5_MARK_REGION_END();
+        int
+        getNumOperands() override
+        {
+            return numDstRegOperands() + numSrcRegOperands();
+        } // getNumOperands
+        int numDstRegOperands() override { return 1; }
+        int numSrcRegOperands() override { return 1; }
+        int
+        getOperandSize(int opIdx) override
+        {
+            switch (opIdx) {
+              case 0: //ssrc
+                return 4;
+              case 1: //sdst
+                return 4;
+              default:
+                fatal("op idx %i out of bounds\n", opIdx);
+                return -1;
+            }
+        } // getOperandSize
+        void execute(GPUDynInstPtr) override;
+    }; // Inst_VOP1__S_GEM5_MARK_REGION_END
+
 
 } // namespace VegaISA
 } // namespace gem5

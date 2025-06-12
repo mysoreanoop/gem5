@@ -96,6 +96,23 @@ Shader::Shader(const Params &p) : ClockedObject(p),
 
     shHiddenPrivateBaseVmid = 0;
 
+    const char* envVar = std::getenv("ROC_GLOBAL_CU_MASK");
+    if (envVar) {
+        // TODO currently supports only hex values
+        // need to support decimal ranges
+        // and support for specific CU IDs (right now agnostic)
+        DPRINTF(GPUDisp, "Disabling CUs; mask: %s\n", envVar);
+        std::string s = envVar;
+        uint32_t num = std::stoi(s, 0, 16);
+        enabled_n_cus = 0;
+        while (num > 0) {
+            enabled_n_cus += num & 1;
+            num >>= 1;
+        }
+    } else
+        enabled_n_cus = n_cu;
+
+    DPRINTF(GPUDisp, "Total enabled CUs: %d\n", enabled_n_cus);
     cuList.resize(n_cu);
 
     panic_if(n_wf <= 0, "Must have at least 1 WF Slot per SIMD");
@@ -227,7 +244,7 @@ Shader::prepareInvalidate(HSAQueueEntry *task) {
     _dispatcher.updateInvCounter(kernId, +1);
 
     // iterate all cus managed by the shader, to perform invalidate.
-    for (int i_cu = 0; i_cu < n_cu; ++i_cu) {
+    for (int i_cu = 0; i_cu < enabled_n_cus; ++i_cu) {
         // create a request to hold INV info; the request's fields will
         // be updated in cu before use
         auto tcc_req = std::make_shared<Request>(0, 0, 0,
@@ -275,39 +292,78 @@ Shader::dispatchWorkgroups(HSAQueueEntry *task)
 {
     bool scheduledSomething = false;
     int cuCount = 0;
+    // TODO can benefit from exploring algorithmically
+    // selecting CUs with early-disp opportunity through
+    // partial releases, over full-disp through full release
     int curCu = nextSchedCu;
     int disp_count(0);
+    bool lookahead(task->isLookaheadDisp());
 
-    while (cuCount < n_cu) {
+    if (cuList[curCu]->resourceUpdated()) {
+        DPRINTF(GPUDisp, "lookahead dispatch for Wg%d "
+                "due to terminal/partial dealloc in Wf%d\n",
+                task->globalWgId(), cuList[curCu]->resourceUpdatedWfDynId());
+        // TODO record stat if launch succeeds or fails
+    }
+
+
+    while (cuCount < enabled_n_cus) {
         //Every time we try a CU, update nextSchedCu
-        nextSchedCu = (nextSchedCu + 1) % n_cu;
+        nextSchedCu = (nextSchedCu + 1) % enabled_n_cus;
 
         // dispatch workgroup iff the following two conditions are met:
         // (a) wg_rem is true - there are unassigned workgroups in the grid
         // (b) there are enough free slots in cu cuList[i] for this wg
+        // below vars will be populated by hasDispResources()
         int num_wfs_in_wg = 0;
-        bool can_disp = cuList[curCu]->hasDispResources(task, num_wfs_in_wg);
+        bool earlyAllocVGPR(false);
+        bool earlyAllocLDS(false);
+        if (lookahead)
+            DPRINTF(GPUDisp, "lookahead dispatch enabled\n");
+
+        bool can_disp = cuList[curCu]->hasDispResources(
+                        task, num_wfs_in_wg, lookahead,
+                        earlyAllocVGPR, earlyAllocLDS);
+
         if (!task->dispComplete() && can_disp) {
             scheduledSomething = true;
-            DPRINTF(GPUDisp, "Dispatching a workgroup to CU %d: WG %d\n",
-                            curCu, task->globalWgId());
+            DPRINTF(GPUDisp,
+                    "Dispatching WG%d from Kernel %s(%d) to CU%d\n",
+                            task->globalWgId(), task->kernelName(),
+                            task->dispatchId(), curCu);
             DPRINTF(GPUAgentDisp, "Dispatching a workgroup to CU %d: WG %d\n",
                             curCu, task->globalWgId());
             DPRINTF(GPUWgLatency, "WG Begin cycle:%d wg:%d cu:%d\n",
                     curTick(), task->globalWgId(), curCu);
 
             if (!cuList[curCu]->tickEvent.scheduled()) {
+                // AM: how could curCu not have scheduled?
                 if (!_activeCus)
                     _lastInactiveTick = curTick();
                 _activeCus++;
             }
 
             panic_if(_activeCus <= 0 || _activeCus > cuList.size(),
-                     "Invalid activeCu size\n");
-            cuList[curCu]->dispWorkgroup(task, num_wfs_in_wg);
+                    "Invalid activeCu size: %d (of tot. %d)\n",
+                    _activeCus, cuList.size());
+            cuList[curCu]->dispWorkgroup(
+                task, num_wfs_in_wg, earlyAllocVGPR, earlyAllocLDS);
 
             task->markWgDispatch();
             ++disp_count;
+            // TODO record stat earlyAllocVGPR, earlyAllocLDS
+            if (cuList[curCu]->resourceUpdated())
+                DPRINTF(GPUDisp,
+                    "lookahead dispatch success after wfDynId %d"
+                    " CU%d Wg%d\n", cuList[curCu]->resourceUpdatedWfDynId(),
+                    curCu, task->globalWgId());
+        } else {
+            DPRINTF(GPUDisp,
+                "%s dispatch not possible on CU%d because %s\n",
+                cuList[curCu]->resourceUpdated() && lookahead ?
+                    "lookahead" : "scheduled",
+                curCu,
+                !can_disp ? "inadequate resources" : "no unassigned WGs");
         }
 
         ++cuCount;
@@ -315,6 +371,11 @@ Shader::dispatchWorkgroups(HSAQueueEntry *task)
     }
 
      DPRINTF(GPUWgLatency, "Shader Dispatched %d Wgs\n", disp_count);
+    if (cuList[curCu]->resourceUpdated()) {
+        // conservatively reset resource update
+        cuList[curCu]->resourceUpdated(false,-1);
+        DPRINTF(GPUDisp, "lookahead dispatch cleared\n");
+    }
 
     return scheduledSomething;
 }
@@ -555,6 +616,7 @@ Shader::sampleLineRoundTrip(const std::map<Addr, std::vector<Tick>>& lineMap)
 void
 Shader::notifyCuSleep() {
     // If all CUs attached to his shader are asleep, update shaderActiveTicks
+    DPRINTF(GPUDisp, "Deactivating CU\n");
     panic_if(_activeCus <= 0 || _activeCus > cuList.size(),
              "Invalid activeCu size\n");
     _activeCus--;
@@ -619,7 +681,6 @@ Shader::writePerfettoLog(const std::string& line,
 {
     std::ostream *os(perfettoLog->stream());
     os->write(line.c_str(), line.length());
-
     // This will be read in python using ast.literal_eval. This function will
     // convert it to a python dict to pass to the perfetto tool. It is more
     // forgiving that json parsers so things like the ending stray comma are

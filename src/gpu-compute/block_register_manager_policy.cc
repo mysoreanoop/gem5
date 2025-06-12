@@ -99,7 +99,6 @@ BlockRegisterManagerPolicy::getTotAllocableWfsForVregUsed(
     DPRINTF(GPUVRF, "Checking how many WFs can be %s "
                     " mapped on SIMD%d for VGPRs used\n",
                      early ? "early" : "fully", simdId);
-    // TODO compiler ensures this, but until then
     DPRINTF(GPUVRF, "demandPerWF: %d | earlyDemandPerWF: %d\n",
             demandPerWf, earlyDemandPerWf);
     assert (early? demandPerWf >= earlyDemandPerWf : true);
@@ -127,7 +126,6 @@ BlockRegisterManagerPolicy::getTotAllocableWfsForSregUsed(
                 DPRINTF(GPUVRF, "Checking how many WFs can be %s "
                     "mapped on SIMD%d for SGPRs used\n",
                      early ? "early" : "fully", simdId);
-    // TODO compiler ensures this, but until then
     DPRINTF(GPUVRF, "demandPerWF: %d | earlyDemandPerWF: %d\n",
         demandPerWf, earlyDemandPerWf);
     assert (early? demandPerWf >= earlyDemandPerWf : true);
@@ -327,8 +325,10 @@ BlockRegisterManagerPolicy::allocateEarlyAndReserve(Wavefront *w,
                 "SRF[%d] has been overallocated %d > %d\n",
                 w->simdId, cu->scalarRegsReserved[w->simdId],
                 cu->numScalarRegsPerSimd);
-        DPRINTF(GPUVRF, "Allocated %d SRF and reserved %d VRF on SIMD%d\n",
-            grantedSize, reservedSize, w->simdId);
+        DPRINTF(GPUVRF, "Allotment %d for %d regs (+reserved %d regs) "
+            "for WF[%d][%d] | curr reservation: %d\n",
+            w->sgprPtr, grantedSize, reservedSize, w->simdId,
+            w->wfSlotId, cu->scalarRegsReserved[w->simdId]);
 
     }
 
@@ -343,14 +343,14 @@ void
 BlockRegisterManagerPolicy::partialFreeRegisters(Wavefront *w,
             int vgprsToFree, int sgprsToFree)
 {
-    DPRINTF(GPUSync, "Freeing %d(%d|%d) VGPRs and %d(%d) SGPRs\n"
-                     "WF[%d][%d] %d allocation: %d, size %d\n",
+    DPRINTF(GPUSync, "WF[%d][%d] Freeing %d(%d) VGPRs and %d(%d) SGPRs\n",
+                        w->simdId, w->wfSlotId,
                         vgprsToFree, w->reservedVectorRegs,
-                        w->computeUnit->vectorRegsReserved[w->simdId],
-                        sgprsToFree, w->reservedScalarRegs,
-                        w->simdId, w->wfSlotId, w->wfDynId,
-                        w->vgprPtr, w->reservedVectorRegs
+                        sgprsToFree, w->reservedScalarRegs
                     );
+    DPRINTF(GPUSync, "CU reservations: V %d | S %d\n",
+                    w->computeUnit->scalarRegsReserved[w->simdId],
+                    w->computeUnit->vectorRegsReserved[w->simdId]);
 
     if (vgprsToFree > 0) {
         // free the vector registers of the completed wavefront

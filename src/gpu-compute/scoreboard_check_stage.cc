@@ -117,6 +117,7 @@ ScoreboardCheckStage::ready(Wavefront *w, nonrdytype_e *rdyStatus,
             *rdyStatus = NRDY_BARRIER_WAIT;
             return false;
         }
+        // all at barrier
         DPRINTF(GPUSync, "CU[%d] WF[%d][%d] Wave[%d] - All waves at barrier "
                 "Id%d. Resetting barrier resources.\n", w->computeUnit->cu_id,
                 w->simdId, w->wfSlotId, w->wfDynId, bar_id);

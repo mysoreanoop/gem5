@@ -1208,6 +1208,8 @@ namespace VegaISA
         GPUStaticInst* decode_OP_SOPK__S_SETREG_IMM32_B32(MachInst);
         GPUStaticInst* decode_OP_SOPK__S_CALL_B64(MachInst);
         GPUStaticInst* decode_OP_VOP1__S_GEM5_MARK_REGION(MachInst);
+        GPUStaticInst* decode_OP_VOP1__S_GEM5_MARK_REGION_START(MachInst);
+        GPUStaticInst* decode_OP_VOP1__S_GEM5_MARK_REGION_END(MachInst);
         GPUStaticInst* decode_OP_SOPP__S_NOP(MachInst);
         GPUStaticInst* decode_OP_SOPP__S_ENDPGM(MachInst);
         GPUStaticInst* decode_OP_SOPP__S_BRANCH(MachInst);

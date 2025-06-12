@@ -292,6 +292,9 @@ class ComputeUnit : public ClockedObject
 
     typedef ComputeUnitParams Params;
     std::vector<std::vector<Wavefront*>> wfList;
+
+    std::vector<int> freeWfSlotsPerSIMD;
+    void refreshTotFreeWfSlots(int &total);
     int cu_id;
 
     // array of vector register files, one per SIMD
@@ -371,12 +374,12 @@ class ComputeUnit : public ClockedObject
     std::vector<Tick> matrix_core_ready;
 
     /**
-     * Number of WFs to schedule to each SIMD. This vector is populated
+     * upper bound on WFs to schedule to each SIMD. This vector is populated
      * by hasDispResources(), and consumed by the subsequent call to
-     * dispWorkgroup(), to schedule the specified number of WFs to the
-     * SIMD units. Entry I provides the number of WFs to schedule to SIMD I.
+     * dispWorkgroup(), to schedule to WFs preferring new SIMDs over new slots
+     * Entry I provides the max number of WFs that can be schedulde to SIMD I.
      */
-    std::vector<int> numWfsToSched;
+    std::vector<int> maxWfsToSched;
 
     // number of currently reserved vector registers per SIMD unit
     std::vector<int> vectorRegsReserved;
@@ -425,8 +428,10 @@ class ComputeUnit : public ClockedObject
     void doFlush(GPUDynInstPtr gpuDynInst);
     void doSQCInvalidate(RequestPtr req, int kernId);
 
-    void dispWorkgroup(HSAQueueEntry *task, int num_wfs_in_wg);
-    bool hasDispResources(HSAQueueEntry *task, int &num_wfs_in_wg);
+    void dispWorkgroup(HSAQueueEntry *task, int num_wfs_in_wg,
+                            bool earlyAllocVGPR, bool earlyAllocLDS);
+    bool hasDispResources(HSAQueueEntry *task, int &num_wfs_in_wg,
+        bool lookahead, bool& earlyAllocVGPR, bool& earlyAllocLDS);
 
     int cacheLineSize() const { return _cacheLineSize; }
     int getCacheLineBits() const { return cacheLineBits; }

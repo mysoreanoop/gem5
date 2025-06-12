@@ -227,6 +227,7 @@ ComputeUnit::ComputeUnit(const Params &p) : ClockedObject(p),
     idleWfs = p.n_wf * numVectorALUs;
     lastVaddrWF.resize(numVectorALUs);
     wfList.resize(numVectorALUs);
+    freeWfSlotsPerSIMD.resize(numVectorALUs, 0);
 
     wfBarrierSlots.resize(p.num_barrier_slots, WFBarrier());
 
@@ -545,12 +546,21 @@ ComputeUnit::resetRegisterPool()
 }
 
 void
-ComputeUnit::dispWorkgroup(HSAQueueEntry *task, int num_wfs_in_wg)
+ComputeUnit::dispWorkgroup(HSAQueueEntry *task, int num_wfs_in_wg,
+                    bool earlyAllocVGPR, bool earlyAllocLDS)
 {
+    /* code flow starting from hasDispResources() is uninterruptible
+     * from other Wg launches;
+     * for VGPRs, since it's per wf, if hasDispResources() reqs early alloc
+     * dispWorkgroup() needs to do early alloc, cause choosing some to be
+     * fully allocd might not leave adequate space for remaining wfs' early
+     * alloc; for LDS, which is per wg, hasDispResources() will make the opt
+     * choice, so follow that;
+     */
     // If we aren't ticking, start it up!
     if (!tickEvent.scheduled()) {
-        DPRINTF(GPUDisp, "CU%d: Scheduling wakeup next cycle\n", cu_id);
         schedule(tickEvent, nextCycle());
+        DPRINTF(GPUDisp, "CU%d: Scheduling wakeup next cycle\n", cu_id);
     }
 
     // the kernel's invalidate must have finished before any wg dispatch
@@ -559,10 +569,21 @@ ComputeUnit::dispWorkgroup(HSAQueueEntry *task, int num_wfs_in_wg)
     // reserve the LDS capacity allocated to the work group
     // disambiguated by the dispatch ID and workgroup ID, which should be
     // globally unique
-    LdsChunk *ldsChunk = lds.reserveSpace(task->dispatchId(),
+    LdsChunk *ldsChunk;
+    if (earlyAllocLDS) {
+        int earlyLDSDemand = static_cast<int>
+            (task->pctEarlyLDSBytes() / 100.0f * task->ldsSize());
+        ldsChunk = lds.earlyReserveSpace(task->dispatchId(),
+                                         task->globalWgId(),
+                                         num_wfs_in_wg,
+                                         earlyLDSDemand,
+                                         task->ldsSize());
+    } else {
+        ldsChunk = lds.reserveSpace(task->dispatchId(),
                                           task->globalWgId(),
                                           num_wfs_in_wg,
                                           task->ldsSize());
+    }
 
     panic_if(!ldsChunk, "was not able to reserve space for this WG");
 
@@ -570,6 +591,8 @@ ComputeUnit::dispWorkgroup(HSAQueueEntry *task, int num_wfs_in_wg)
     // by each work item
     int vregDemand = task->numVectorRegs();
     int sregDemand = task->numScalarRegs();
+    int earlyVregDemand = task->numEarlyVectorRegs();
+    int earlySregDemand = task->numEarlyScalarRegs();
     int wave_id = 0;
 
     int barrier_id = WFBarrier::InvalidID;
@@ -594,8 +617,9 @@ ComputeUnit::dispWorkgroup(HSAQueueEntry *task, int num_wfs_in_wg)
                 num_wfs_in_wg);
     }
 
-    // Assign WFs according to numWfsToSched vector, which is computed by
+    // Assign WFs according to maxWfsToSched vector, which is computed by
     // hasDispResources()
+    int wfs_launched = 0;
     for (int j = 0; j < shader->n_wf; ++j) {
         for (int i = 0; i < numVectorALUs; ++i) {
             Wavefront *w = wfList[i][j];
@@ -604,20 +628,31 @@ ComputeUnit::dispWorkgroup(HSAQueueEntry *task, int num_wfs_in_wg)
             // WF slot must be stopped and not waiting
             // for a release to complete S_RETURNING
             if (w->getStatus() == Wavefront::S_STOPPED &&
-                numWfsToSched[i] > 0) {
+                maxWfsToSched[i] > 0) {
                 // decrement number of WFs awaiting dispatch to current SIMD
-                numWfsToSched[i] -= 1;
+                maxWfsToSched[i]--;
+                wfs_launched++;
 
                 fillKernelState(w, task);
 
-                DPRINTF(GPURename, "SIMD[%d] wfSlotId[%d] WF[%d] "
-                    "vregDemand[%d] sregDemand[%d]\n", i, j, w->wfDynId,
-                    vregDemand, sregDemand);
+                DPRINTF(GPURename, "Wave %d of %d -> WF[%d][%d]\n",
+                                    wfs_launched, num_wfs_in_wg, i, j);
 
-                registerManager->allocateRegisters(w, vregDemand, sregDemand);
+                if (!earlyAllocVGPR)
+                    registerManager->
+                        allocateRegisters(w, vregDemand, sregDemand);
+                else
+                    registerManager->
+                        allocateEarlyAndReserve(w,
+                            vregDemand, earlyVregDemand,
+                            sregDemand, earlySregDemand);
 
                 startWavefront(w, wave_id, ldsChunk, task, barrier_id);
                 ++wave_id;
+            }
+            if (wfs_launched == num_wfs_in_wg) {
+                // done dispatching all wfs
+                return;
             }
         }
     }
@@ -644,8 +679,22 @@ ComputeUnit::deleteFromPipeMap(Wavefront *w)
     pipeMap.erase(it);
 }
 
+void
+ComputeUnit::refreshTotFreeWfSlots(int &total)
+{
+    for (int j = 0; j < numVectorALUs; j++) {
+        freeWfSlotsPerSIMD[j] = 0; // reset
+        for (int i = 0; i < shader->n_wf; i++)
+            if (wfList[j][i]->getStatus() == Wavefront::S_STOPPED) {
+                freeWfSlotsPerSIMD[j]++;
+                total++;
+            }
+    }
+}
+
 bool
-ComputeUnit::hasDispResources(HSAQueueEntry *task, int &num_wfs_in_wg)
+ComputeUnit::hasDispResources(HSAQueueEntry *task, int &num_wfs_in_wg,
+                bool lookahead, bool& earlyAllocVGPR, bool& earlyAllocLDS)
 {
     // compute true size of workgroup (after clamping to grid size)
     int trueWgSize[HSAQueueEntry::MAX_DIM];
@@ -674,10 +723,22 @@ ComputeUnit::hasDispResources(HSAQueueEntry *task, int &num_wfs_in_wg)
     // calculate the number of 32-bit vector registers required by each
     // work item of the work group
     int vregDemandPerWI = task->numVectorRegs();
+    int earlyVregDemand;
+    int earlySregDemand;
     // calculate the number of 32-bit scalar registers required by each
     // work item of the work group
     int sregDemandPerWI = task->numScalarRegs();
 
+
+    DPRINTF(GPUDisp, "CU[%d] vregDemandPerWI: %d | sregDemandPerWI: %d\n",
+                    cu_id, vregDemandPerWI, sregDemandPerWI);
+    if (lookahead) {
+        earlyVregDemand = task->numEarlyVectorRegs();
+        earlySregDemand = task->numEarlyScalarRegs();
+        DPRINTF(GPUDisp,
+            "earlyVregDemandPerWI: %d | earlySregDemandPerWI: %d\n",
+                    earlyVregDemand, earlySregDemand);
+    }
     // check if the total number of VGPRs snd SGPRs required by all WFs
     // of the WG fit in the VRFs of all SIMD units and the CU's SRF
     panic_if((numWfs * vregDemandPerWI) > (numVectorALUs * numVecRegsPerSimd),
@@ -689,71 +750,124 @@ ComputeUnit::hasDispResources(HSAQueueEntry *task, int &num_wfs_in_wg)
              "with %d SGPRs\n",
              numWfs, sregDemandPerWI, numScalarRegsPerSimd);
 
-    // number of WF slots that are not occupied
-    int freeWfSlots = 0;
     // number of Wfs from WG that were successfully mapped to a SIMD
     int numMappedWfs = 0;
-    numWfsToSched.clear();
-    numWfsToSched.resize(numVectorALUs, 0);
+    int numEarlyMappedWfs = 0;
 
-    // attempt to map WFs to the SIMDs, based on WF slot availability
-    // and register file availability
-    for (int j = 0; j < shader->n_wf; ++j) {
-        for (int i = 0; i < numVectorALUs; ++i) {
-            if (wfList[i][j]->getStatus() == Wavefront::S_STOPPED) {
-                ++freeWfSlots;
-                // check if current WF will fit onto current SIMD/VRF
-                // if all WFs have not yet been mapped to the SIMDs
-                if (numMappedWfs < numWfs &&
-                    registerManager->canAllocateSgprs(i, numWfsToSched[i] + 1,
-                                                      sregDemandPerWI) &&
-                    registerManager->canAllocateVgprs(i, numWfsToSched[i] + 1,
-                                                      vregDemandPerWI)) {
-                    numWfsToSched[i]++;
-                    numMappedWfs++;
-                }
+    /* attempt to map WFs to the SIMDs:
+    * check if adequate free waveslots are availble;
+    * check and save how many wfs each SIMD can host for available gprs;
+    * prioritize distributing across SIMDs over waveslots
+    */
+
+    int freeWfSlots = 0;
+    // used when actually dispatching
+    maxWfsToSched.clear();
+    maxWfsToSched.resize(numVectorALUs, 0);
+
+    std::vector<int> vregAvailCnt(numVectorALUs, 0);
+    std::vector<int> sregAvailCnt(numVectorALUs, 0);
+
+    // updates freeWfSlotsPerSIMD variable
+    refreshTotFreeWfSlots(freeWfSlots);
+
+    DPRINTF(GPUDisp, "CU[%d]: Free WF slots =  %d/%d\n",
+                cu_id, freeWfSlots, numVectorALUs * shader->n_wf);
+    if (freeWfSlots > numWfs) {
+        // adequate WF slots available
+
+        // full dispatch
+        for (int i=0; i < numVectorALUs; i++) {
+            // objective is to find max schedulable per SIMD
+            vregAvailCnt[i] = registerManager->
+                getTotAllocableWfsForVregUsed(i, vregDemandPerWI);
+            sregAvailCnt[i] = registerManager->
+                getTotAllocableWfsForSregUsed(i, sregDemandPerWI);
+            maxWfsToSched[i] =std::min({vregAvailCnt[i],
+                                        sregAvailCnt[i],
+                                        freeWfSlotsPerSIMD[i]});
+        }
+        numMappedWfs = std::accumulate(maxWfsToSched.begin(),
+                                       maxWfsToSched.end(), 0);
+
+        // early dispatch on full dispatch failure
+        if (lookahead && (numMappedWfs < numWfs)) {
+            for (int i=0; i < numVectorALUs; i++) {
+                // ok to overwrite
+                vregAvailCnt[i] = registerManager->
+                    getTotAllocableWfsForVregUsed(i, vregDemandPerWI,
+                        vregDemandPerWI > earlyVregDemand, earlyVregDemand);
+                sregAvailCnt[i] = registerManager->
+                    getTotAllocableWfsForSregUsed(i, sregDemandPerWI,
+                        sregDemandPerWI > earlySregDemand, earlySregDemand);
+
+                maxWfsToSched[i] = std::min({vregAvailCnt[i],
+                                             sregAvailCnt[i],
+                                             freeWfSlotsPerSIMD[i]});
+            }
+            numEarlyMappedWfs = std::accumulate(maxWfsToSched.begin(),
+                                       maxWfsToSched.end(), 0);
+
+            if (numEarlyMappedWfs >= numWfs) {
+                numMappedWfs = numEarlyMappedWfs;
+                earlyAllocVGPR = true;
+            } else {
+                DPRINTF(GPUDisp, "CU[%d] cannot map WG\n", cu_id);
             }
         }
     }
 
-    // check that the number of mapped WFs is not greater
-    // than the actual number of WFs
-    assert(numMappedWfs <= numWfs);
+    bool vregAvail =
+        std::accumulate(vregAvailCnt.begin(),
+                        vregAvailCnt.end(), 0) >= numWfs;
+    bool sregAvail =
+        std::accumulate(sregAvailCnt.begin(),
+                        sregAvailCnt.end(), 0) >= numWfs;
 
-    bool vregAvail = true;
-    bool sregAvail = true;
-    // if a WF to SIMD mapping was not found, find the limiting resource
     if (numMappedWfs < numWfs) {
-
-        for (int j = 0; j < numVectorALUs; ++j) {
-            // find if there are enough free VGPRs in the SIMD's VRF
-            // to accomodate the WFs of the new WG that would be mapped
-            // to this SIMD unit
-            vregAvail &= registerManager->
-                canAllocateVgprs(j, numWfsToSched[j], vregDemandPerWI);
-            // find if there are enough free SGPRs in the SIMD's SRF
-            // to accomodate the WFs of the new WG that would be mapped
-            // to this SIMD unit
-            sregAvail &= registerManager->
-                canAllocateSgprs(j, numWfsToSched[j], sregDemandPerWI);
+        // could not map the WFs, find limiting resource
+        if (!vregAvail) {
+            ++stats.numTimesWgBlockedDueVgprAlloc;
         }
-    }
-
-    DPRINTF(GPUDisp, "Free WF slots =  %d, Mapped WFs = %d, \
-            VGPR Availability = %d, SGPR Availability = %d\n",
-            freeWfSlots, numMappedWfs, vregAvail, sregAvail);
-
-    if (!vregAvail) {
-        ++stats.numTimesWgBlockedDueVgprAlloc;
-    }
-
-    if (!sregAvail) {
-        ++stats.numTimesWgBlockedDueSgprAlloc;
+        if (!sregAvail) {
+            ++stats.numTimesWgBlockedDueSgprAlloc;
+        }
+        // sometimes both could be avail, but wf can't be mapped cause
+        // SIMDs where vreg avail may not have adeq sreg & vice versa
+        // TODO: simplifies if SGPR is managed by CU instead of each SIMD
+        if (sregAvail && vregAvail) {
+            ++stats.numTimesWgBlockedDueVgprAlloc;
+            ++stats.numTimesWgBlockedDueVgprAlloc;
+            DPRINTF(GPUDisp, "Can't allocate WG because inadeq "
+                     "VGPR-SGPR combo in SIMDs at CU%d\n", cu_id);
+        }
     }
 
     // Return true if enough WF slots to submit workgroup and if there are
     // enough VGPRs to schedule all WFs to their SIMD units
-    bool ldsAvail = lds.canReserve(task->ldsSize());
+    bool ldsAvail;
+    if (lookahead) {
+        int earlyLDSDemand = (int)((float)task->pctEarlyLDSBytes() /
+                                (float)100 * (float)task->ldsSize());
+
+        // try full reservation, and if not, early reservation
+        ldsAvail = lds.canReserve(task->ldsSize());
+        if (!ldsAvail) {
+            ldsAvail = lds.canEarlyReserve(earlyLDSDemand, task->ldsSize());
+            if (!ldsAvail) {
+                DPRINTF(GPUDisp, "Inadequate LDS on CU, returning\n");
+            } else {
+                earlyAllocLDS = true;
+                DPRINTF(GPUDisp, "CU[%d] early LDS requested\n",
+                    cu_id);
+            }
+        }
+        // else early LDS not necessary
+    } else {
+        // no lookahead enabled for kernel
+        ldsAvail = lds.canReserve(task->ldsSize());
+    }
+
     if (!ldsAvail) {
         stats.wgBlockedDueLdsAllocation++;
     }
@@ -762,14 +876,22 @@ ComputeUnit::hasDispResources(HSAQueueEntry *task, int &num_wfs_in_wg)
         stats.wgBlockedDueBarrierAllocation++;
     }
 
+    DPRINTF(GPUDisp, "CU[%d] limiting resource:\n\t"
+            "Slots %d | VGPR %d | SGPR %d| LDS %d | Bar %d\n",
+            cu_id, numMappedWfs < numWfs, !vregAvail, !sregAvail,
+            !ldsAvail, !barrier_avail);
+
     // Return true if the following are all true:
     // (a) all WFs of the WG were mapped to free WF slots
     // (b) there are enough VGPRs to schedule all WFs to their SIMD units
     // (c) there are enough SGPRs on the CU to schedule all WFs
     // (d) there is enough space in LDS to allocate for all WFs
-    bool can_dispatch = numMappedWfs == numWfs && vregAvail && sregAvail
-                        && ldsAvail && barrier_avail;
-    return can_dispatch;
+    // (e) enough barrier slots for WFs
+    return numMappedWfs >= numWfs
+            && vregAvail
+            && sregAvail
+            && ldsAvail
+            && barrier_avail;
 }
 
 int

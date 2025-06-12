@@ -88,6 +88,10 @@ class GPUDispatcher : public SimObject
     std::unordered_map<int, HSAQueueEntry*> hsaQueueEntries;
     // list of kernel_ids to launch
     std::queue<int> execIds;
+    // list of kernel_ids that have executed launch acquire
+    // TODO: this needs to be erased after kernel is done
+    // AM: not sure where to get this from
+    std::unordered_set<int> launch_acquired_kerns;
     // list of kernel_ids that have finished
     std::queue<int> doneIds;
     // is there a kernel in execution?

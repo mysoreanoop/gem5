@@ -172,6 +172,10 @@ namespace VegaISA
                     std::memcpy((void*)&vgpr[lane],
                         (void*)&reg_file_vgpr[lane], sizeof(DataType));
                 }
+                wf->last_kiss[_opIdx] = curTick();
+                if (wf->first_kiss[_opIdx] == 0)
+                    wf->first_kiss[_opIdx] = curTick();
+
             } else if (NumDwords == 2) {
                 assert(vrfData[0]);
                 assert(vrfData[1]);
@@ -185,6 +189,13 @@ namespace VegaISA
                     ((VecElemU32*)&tmp_val)[1] = reg_file_vgpr1[lane];
                     vgpr[lane] = tmp_val;
                 }
+                wf->last_kiss[_opIdx] = curTick();
+                if (wf->first_kiss[_opIdx] == 0)
+                    wf->first_kiss[_opIdx] = curTick();
+                wf->last_kiss[_opIdx+1] = curTick();
+                if (wf->first_kiss[_opIdx+1] == 0)
+                    wf->first_kiss[_opIdx+1] = curTick();
+
             }
         }
 
@@ -229,6 +240,9 @@ namespace VegaISA
                         wf->wfDynId, vgprIdx,
                         _gpuDynInst->disassemble().c_str());
                 cu->vrf[wf->simdId]->printReg(wf, vgprIdx);
+                wf->last_kiss[_opIdx] = curTick();
+                if (wf->first_kiss[_opIdx] == 0)
+                    wf->first_kiss[_opIdx] = curTick();
             } else if (NumDwords == 2) {
                 int vgprIdx0 = cu->registerManager->mapVgpr(wf, _opIdx);
                 int vgprIdx1 = cu->registerManager->mapVgpr(wf, _opIdx + 1);
@@ -253,6 +267,13 @@ namespace VegaISA
                         _gpuDynInst->disassemble().c_str());
                 cu->vrf[wf->simdId]->printReg(wf, vgprIdx0);
                 cu->vrf[wf->simdId]->printReg(wf, vgprIdx1);
+                wf->last_kiss[_opIdx] = curTick();
+                if (wf->first_kiss[_opIdx] == 0)
+                    wf->first_kiss[_opIdx] = curTick();
+                wf->last_kiss[_opIdx+1] = curTick();
+                if (wf->first_kiss[_opIdx+1] == 0)
+                    wf->first_kiss[_opIdx+1] = curTick();
+
             }
         }
 

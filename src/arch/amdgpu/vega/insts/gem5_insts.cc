@@ -107,5 +107,48 @@ Inst_VOP1__S_GEM5_MARK_REGION::execute(GPUDynInstPtr gpuDynInst)
     wf->markRegion(track_test, flags);
 } // execute
 
+// --- Inst_VOP1__S_GEM5_MARK_REGION class methods ---
+
+Inst_VOP1__S_GEM5_MARK_REGION_START::
+    Inst_VOP1__S_GEM5_MARK_REGION_START(InFmt_VOP1 *iFmt)
+    : Inst_VOP1(iFmt, "s_vop1_gem5_mark_region_start")
+{
+    setFlag(ALU);
+} // Inst_VOP1__S_GEM5_MARK_REGION_START
+
+Inst_VOP1__S_GEM5_MARK_REGION_START::~Inst_VOP1__S_GEM5_MARK_REGION_START()
+{
+} // ~Inst_VOP1__S_GEM5_MARK_REGION_START
+
+void
+Inst_VOP1__S_GEM5_MARK_REGION_START::execute(GPUDynInstPtr gpuDynInst)
+{
+    Wavefront *wf = gpuDynInst->wavefront();
+    std::string track_test("MAIN");
+    wf->markRegion(track_test, 0);
+} // execute
+
+
+// --- Inst_VOP1__S_GEM5_MARK_REGION_END class methods ---
+
+Inst_VOP1__S_GEM5_MARK_REGION_END::
+    Inst_VOP1__S_GEM5_MARK_REGION_END(InFmt_VOP1 *iFmt)
+    : Inst_VOP1(iFmt, "s_vop1_gem5_mark_region_end")
+{
+    setFlag(ALU);
+} // Inst_VOP1__S_GEM5_MARK_REGION_END
+
+Inst_VOP1__S_GEM5_MARK_REGION_END::~Inst_VOP1__S_GEM5_MARK_REGION_END()
+{
+} // ~Inst_VOP1__S_GEM5_MARK_REGION_END
+
+void
+Inst_VOP1__S_GEM5_MARK_REGION_END::execute(GPUDynInstPtr gpuDynInst)
+{
+    Wavefront *wf = gpuDynInst->wavefront();
+    std::string track_test("MAIN");
+    wf->markRegion(track_test, 1);
+} // execute
+
 } // namespace VegaISA
 } // namespace gem5

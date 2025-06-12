@@ -86,8 +86,8 @@ GPUDynInst::GPUDynInst(ComputeUnit *_cu, Wavefront *_wf,
     }
 
 
-    DPRINTF(GPUInst, "%s: generating operand info for %d operands\n",
-            disassemble(), getNumOperands());
+    DPRINTF(GPUInst, "WF %d: %s: generating operand info for %d operands\n",
+            wfDynId, disassemble(), getNumOperands());
 
     _staticInst->initDynOperandInfo(wavefront(), computeUnit());
 

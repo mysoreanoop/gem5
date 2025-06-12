@@ -38,6 +38,7 @@
 #include "arch/amdgpu/vega/insts/inst_util.hh"
 #include "arch/amdgpu/vega/operand.hh"
 #include "debug/GPUExec.hh"
+#include "debug/GPULDS.hh"
 #include "debug/VEGA.hh"
 #include "mem/ruby/system/RubySystem.hh"
 
@@ -878,6 +879,8 @@ namespace VegaISA
         initMemRead(GPUDynInstPtr gpuDynInst, Addr offset)
         {
             Wavefront *wf = gpuDynInst->wavefront();
+            DPRINTF(GPULDS, "Reading chunk %d @PC=%x\n",
+                offset, gpuDynInst->pc());
 
             for (int lane = 0; lane < NumVecElemPerVecReg; ++lane) {
                 if (gpuDynInst->exec_mask[lane]) {
@@ -894,7 +897,8 @@ namespace VegaISA
         initMemRead(GPUDynInstPtr gpuDynInst, Addr offset)
         {
             Wavefront *wf = gpuDynInst->wavefront();
-
+            DPRINTF(GPULDS, "Reading chunk %ld @PC=%x\n",
+                offset, gpuDynInst->pc());
             for (int lane = 0; lane < NumVecElemPerVecReg; ++lane) {
                 if (gpuDynInst->exec_mask[lane]) {
                     Addr vaddr = gpuDynInst->addr[lane] + offset;
@@ -913,6 +917,10 @@ namespace VegaISA
         initDualMemRead(GPUDynInstPtr gpuDynInst, Addr offset0, Addr offset1)
         {
             Wavefront *wf = gpuDynInst->wavefront();
+            DPRINTF(GPULDS, "Reading chunks %ld @PC=%x\n",
+                offset0, gpuDynInst->pc());
+            DPRINTF(GPULDS, "Reading chunks %ld @PC=%x\n",
+                offset1, gpuDynInst->pc());
 
             for (int lane = 0; lane < NumVecElemPerVecReg; ++lane) {
                 if (gpuDynInst->exec_mask[lane]) {
@@ -932,6 +940,8 @@ namespace VegaISA
         initMemWrite(GPUDynInstPtr gpuDynInst, Addr offset)
         {
             Wavefront *wf = gpuDynInst->wavefront();
+            DPRINTF(GPULDS, "Writing chunk %ld @PC=%x\n",
+                offset, gpuDynInst->pc());
 
             for (int lane = 0; lane < NumVecElemPerVecReg; ++lane) {
                 if (gpuDynInst->exec_mask[lane]) {
@@ -947,6 +957,8 @@ namespace VegaISA
         initMemWrite(GPUDynInstPtr gpuDynInst, Addr offset)
         {
             Wavefront *wf = gpuDynInst->wavefront();
+            DPRINTF(GPULDS, "Writing chunk %ld @PC=%x\n",
+                offset, gpuDynInst->pc());
 
             for (int lane = 0; lane < NumVecElemPerVecReg; ++lane) {
                 if (gpuDynInst->exec_mask[lane]) {
@@ -966,6 +978,10 @@ namespace VegaISA
         initDualMemWrite(GPUDynInstPtr gpuDynInst, Addr offset0, Addr offset1)
         {
             Wavefront *wf = gpuDynInst->wavefront();
+            DPRINTF(GPULDS, "Writing chunks %ld @PC=%x\n",
+                offset0, gpuDynInst->pc());
+            DPRINTF(GPULDS, "Writing chunks %ld @PC=%x\n",
+                offset1, gpuDynInst->pc());
 
             for (int lane = 0; lane < NumVecElemPerVecReg; ++lane) {
                 if (gpuDynInst->exec_mask[lane]) {
@@ -984,6 +1000,8 @@ namespace VegaISA
         initAtomicAccess(GPUDynInstPtr gpuDynInst, Addr offset)
         {
             Wavefront *wf = gpuDynInst->wavefront();
+            DPRINTF(GPULDS, "Atomic chunk %ld @PC=%x\n",
+                offset, gpuDynInst->pc());
 
             for (int lane = 0; lane < NumVecElemPerVecReg; ++lane) {
                 if (gpuDynInst->exec_mask[lane]) {
@@ -1318,6 +1336,9 @@ namespace VegaISA
                 initMemReqHelper<T, 1>(gpuDynInst, MemCmd::ReadReq);
             } else if (gpuDynInst->executedAs() == enums::SC_GROUP) {
                 Wavefront *wf = gpuDynInst->wavefront();
+                DPRINTF(GPULDS, "Reading (flat) chunk @PC=%x\n",
+                    gpuDynInst->pc());
+
                 for (int lane = 0; lane < NumVecElemPerVecReg; ++lane) {
                     if (gpuDynInst->exec_mask[lane]) {
                         Addr vaddr = gpuDynInst->addr[lane];
@@ -1338,6 +1359,9 @@ namespace VegaISA
                 initScratchReqHelper<N>(gpuDynInst, MemCmd::ReadReq);
             } else if (gpuDynInst->executedAs() == enums::SC_GROUP) {
                 Wavefront *wf = gpuDynInst->wavefront();
+                DPRINTF(GPULDS, "Reading (flat) chunk @PC=%x\n",
+                    gpuDynInst->pc());
+
                 for (int lane = 0; lane < NumVecElemPerVecReg; ++lane) {
                     if (gpuDynInst->exec_mask[lane]) {
                         Addr vaddr = gpuDynInst->addr[lane];
@@ -1365,6 +1389,9 @@ namespace VegaISA
                 initMemReqHelper<T, 1>(gpuDynInst, MemCmd::WriteReq);
             } else if (gpuDynInst->executedAs() == enums::SC_GROUP) {
                 Wavefront *wf = gpuDynInst->wavefront();
+                DPRINTF(GPULDS, "Writing (flat) chunk @PC=%x\n",
+                    gpuDynInst->pc());
+
                 for (int lane = 0; lane < NumVecElemPerVecReg; ++lane) {
                     if (gpuDynInst->exec_mask[lane]) {
                         Addr vaddr = gpuDynInst->addr[lane];
@@ -1386,6 +1413,10 @@ namespace VegaISA
                 initScratchReqHelper<N>(gpuDynInst, MemCmd::WriteReq);
             } else if (gpuDynInst->executedAs() == enums::SC_GROUP) {
                 Wavefront *wf = gpuDynInst->wavefront();
+                DPRINTF(GPULDS, "Writing (flat) chunk @PC=%x\n",
+                    gpuDynInst->pc());
+
+
                 for (int lane = 0; lane < NumVecElemPerVecReg; ++lane) {
                     if (gpuDynInst->exec_mask[lane]) {
                         Addr vaddr = gpuDynInst->addr[lane];
@@ -1412,6 +1443,10 @@ namespace VegaISA
                 initMemReqHelper<T, 1>(gpuDynInst, MemCmd::SwapReq, true);
             } else if (gpuDynInst->executedAs() == enums::SC_GROUP) {
                 Wavefront *wf = gpuDynInst->wavefront();
+                DPRINTF(GPULDS, "Atomic/RW (flat) chunk @PC=%x\n",
+                    gpuDynInst->pc());
+
+
                 for (int lane = 0; lane < NumVecElemPerVecReg; ++lane) {
                     if (gpuDynInst->exec_mask[lane]) {
                         Addr vaddr = gpuDynInst->addr[lane];

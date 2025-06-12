@@ -161,29 +161,33 @@ GPUDispatcher::exec()
         auto task = hsaQueueEntries[exec_id];
         bool launched(false);
 
-        // acq is needed before starting dispatch
-        if (shader->impl_kern_launch_acq) {
-            // try to invalidate cache
-            shader->prepareInvalidate(task);
-        } else {
-            // kern launch acquire is not set, skip invalidate
-            task->markInvDone();
-        }
+        if (launch_acquired_kerns.find(exec_id)
+                                == launch_acquired_kerns.end()) {
+            // acq is needed before starting dispatch
+            if (shader->impl_kern_launch_acq) {
+                // try to invalidate cache
+                shader->prepareInvalidate(task);
+            } else {
+                // kern launch acquire is not set, skip invalidate
+                task->markInvDone();
+            }
 
-        /**
-         * invalidate is still ongoing, put the kernel on the queue to
-         * retry later
-         */
-        if (!task->isInvDone()){
-            execIds.push(exec_id);
-            ++fail_count;
+            /**
+             * invalidate is still ongoing, put the kernel on the queue to
+             * retry later
+             */
+            if (!task->isInvDone()) {
+                DPRINTF(GPUDisp, "kernel %s(%d) failed to launch,"
+                    " due to %d pending invalidate requests\n",
+                    task->kernelName(), exec_id, task->outstandingInvs());
 
-            DPRINTF(GPUDisp, "kernel %d failed to launch, due to [%d] pending"
-                " invalidate requests\n", exec_id, task->outstandingInvs());
+                execIds.push(exec_id);
+                ++fail_count;
 
-            // try the next kernel_id
-            execIds.pop();
-            continue;
+                // try the next kernel_id
+                execIds.pop();
+                continue;
+            }
         }
 
         // kernel invalidate is done, start workgroup dispatch
@@ -192,12 +196,12 @@ GPUDispatcher::exec()
             shader->updateContext(task->contextId());
 
             // attempt to dispatch workgroup
-            DPRINTF(GPUWgLatency, "Attempt Kernel Launch cycle:%d kernel:%d\n",
-                curTick(), exec_id);
+            DPRINTF(GPUWgLatency, "Attempt Kernel Launch: kernel:%s(%d)\n",
+                task->kernelName(), exec_id);
 
             if (!shader->dispatchWorkgroups(task)) {
                 /**
-                 * if we failed try the next kernel,
+                 * if we failed, try the next kernel,
                  * it may have smaller workgroups.
                  * put it on the queue to retry later
                  */
@@ -207,6 +211,7 @@ GPUDispatcher::exec()
                 break;
             } else if (!launched) {
                 launched = true;
+                launch_acquired_kerns.insert(exec_id);
                 disp_count++;
                 DPRINTF(GPUKernelInfo, "Launched kernel %d for WG %d\n",
                             exec_id, disp_count);
@@ -218,7 +223,7 @@ GPUDispatcher::exec()
     }
 
     DPRINTF(GPUDisp, "Returning %d Kernels\n", doneIds.size());
-    DPRINTF(GPUWgLatency, "Kernel Wgs dispatched: %d | %d failures\n",
+    DPRINTF(GPUWgLatency, "Kernels dispatched: %d | %d failures\n",
             disp_count, fail_count);
 
     while (doneIds.size()) {
@@ -349,8 +354,8 @@ GPUDispatcher::notifyWgCompl(Wavefront *wf)
             shader->writePerfettoLog(slice, task_notes);
         }
 
-        DPRINTF(GPUWgLatency, "Kernel Complete ticks:%d kernel:%d\n",
-                curTick(), kern_id);
+        DPRINTF(GPUWgLatency, "Kernel %d execution ticks: %d\n",
+                kern_id, task->getEndTick() - task->getStartTick());
         DPRINTF(GPUKernelInfo, "Completed kernel %d\n", kern_id);
 
         if (kernelExitEvents) {
@@ -366,6 +371,7 @@ GPUDispatcher::notifyWgCompl(Wavefront *wf)
 void
 GPUDispatcher::scheduleDispatch()
 {
+    // end-of-kernel insn schedules this
     if (!tickEvent.scheduled()) {
         schedule(&tickEvent, curTick() + shader->clockPeriod());
     }

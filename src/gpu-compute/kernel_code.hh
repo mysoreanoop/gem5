@@ -92,7 +92,10 @@ typedef struct GEM5_PACKED
     uint32_t kernarg_size;
     uint8_t reserved0[4];
     int64_t kernel_code_entry_byte_offset;
-    uint8_t reserved1[20];
+    uint8_t reserved1[17];
+    uint8_t early_vgpr_count;
+    uint8_t early_sgpr_count;
+    uint8_t pct_early_lds;
 
     // the 32b below here represent the fields of
     // the COMPUTE_PGM_RSRC3 register for GFX90A, GFX940

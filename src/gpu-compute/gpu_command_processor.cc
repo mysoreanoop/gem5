@@ -866,6 +866,10 @@ GPUCommandProcessor::sanityCheckAKC(AMDKernelCode *akc)
             akc->kernel_code_entry_byte_offset);
     DPRINTF(GPUInitAbi, "accum_offset: %d\n", akc->accum_offset);
     DPRINTF(GPUInitAbi, "tg_split: %d\n", akc->tg_split);
+    DPRINTF(GPUInitAbi, "early_vgpr_count: %d\n",
+            akc->early_vgpr_count);
+    DPRINTF(GPUInitAbi, "early_sgpr_count: %d\n",
+            akc->early_sgpr_count);
     DPRINTF(GPUInitAbi, "granulated_workitem_vgpr_count: %d\n",
             akc->granulated_workitem_vgpr_count);
     DPRINTF(GPUInitAbi, "granulated_wavefront_sgpr_count: %d\n",
@@ -937,7 +941,9 @@ GPUCommandProcessor::sanityCheckAKC(AMDKernelCode *akc)
             akc->enable_sgpr_private_segment_size);
     DPRINTF(GPUInitAbi, "enable_wavefront_size32: %d\n",
             akc->enable_wavefront_size32);
-    DPRINTF(GPUInitAbi, "use_dynamic_stack: %d\n", akc->use_dynamic_stack);
+    // FIXME: repurposing this for lookahead dispatch flag
+    DPRINTF(GPUInitAbi, "use_dynamic_stack / lookahead dispatch: %d\n",
+            akc->use_dynamic_stack);
     DPRINTF(GPUInitAbi, "kernarg_preload_spec_length: %d\n",
             akc->kernarg_preload_spec_length);
     DPRINTF(GPUInitAbi, "kernarg_preload_spec_offset: %d\n",

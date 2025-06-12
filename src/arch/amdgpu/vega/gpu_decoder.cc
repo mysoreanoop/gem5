@@ -3333,8 +3333,8 @@ namespace VegaISA
         &Decoder::decode_invalid,
         &Decoder::decode_invalid,
         &Decoder::decode_OP_VOP1__S_GEM5_MARK_REGION,
-        &Decoder::decode_invalid,
-        &Decoder::decode_invalid,
+        &Decoder::decode_OP_VOP1__S_GEM5_MARK_REGION_START,
+        &Decoder::decode_OP_VOP1__S_GEM5_MARK_REGION_END,
         &Decoder::decode_invalid,
         &Decoder::decode_invalid,
         &Decoder::decode_invalid
@@ -11009,6 +11009,18 @@ namespace VegaISA
     Decoder::decode_OP_VOP1__S_GEM5_MARK_REGION(MachInst iFmt)
     {
         return new Inst_VOP1__S_GEM5_MARK_REGION(&iFmt->iFmt_VOP1);
+    }
+
+    GPUStaticInst*
+    Decoder::decode_OP_VOP1__S_GEM5_MARK_REGION_START(MachInst iFmt)
+    {
+        return new Inst_VOP1__S_GEM5_MARK_REGION_START(&iFmt->iFmt_VOP1);
+    }
+
+    GPUStaticInst*
+    Decoder::decode_OP_VOP1__S_GEM5_MARK_REGION_END(MachInst iFmt)
+    {
+        return new Inst_VOP1__S_GEM5_MARK_REGION_END(&iFmt->iFmt_VOP1);
     }
 
     GPUStaticInst*
