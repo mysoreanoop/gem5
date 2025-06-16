@@ -2645,34 +2645,7 @@ ComputeUnit::ldsBarReleased(Wavefront *wf)
 bool
 ComputeUnit::resourceBarReleased(Wavefront *wf)
 {
-    int currWgId = wf->wgId;
     bool sat(registerManager->canExtend(wf));
-    for (const auto& jsimd : wf->computeUnit->wfList) {
-        for (Wavefront* siblingWf : jsimd) {
-            if (siblingWf->wgId == currWgId) {
-                // is sibling satisfied?
-                Wavefront::status_e wfst = siblingWf->getStatus();
-
-                // release if already fully alloc'd
-                bool need(siblingWf->reservedScalarRegs < siblingWf->maxSgprs
-                      || siblingWf->reservedVectorRegs < siblingWf->maxVgprs);
-                if (need) {
-                    bool siblingSat(registerManager->canExtend(siblingWf));
-                    sat &= siblingSat;
-                }
-                DPRINTF(GPUSync, "sibling WF: %s (wgId: %d | wfDynId: %d)"
-                    "| %d(%d), %d(%d) | %s\n",
-                    wf->statusToString(wfst),
-                    siblingWf->wgId, siblingWf->wfDynId,
-                    siblingWf->reservedScalarRegs, siblingWf->maxSgprs,
-                    siblingWf->reservedVectorRegs, siblingWf->maxVgprs,
-                    need ? (sat ? "can extend" : "cannot extend !")
-                        : "already fully allocd"
-                );
-
-            }
-        }
-    }
     return sat;
 }
 
