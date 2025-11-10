@@ -125,6 +125,9 @@ namespace VegaISA
           case REG_NEG_FOUR:
             reg_sym = "-4";
             break;
+          case REG_PI:
+            reg_sym = "1 / (2*pi)";
+            break;
           default:
             fatal("VEGA ISA instruction has unknown register index %u\n", idx);
             break;
