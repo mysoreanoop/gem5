@@ -995,6 +995,10 @@ SDMAEngine::pollRegMem(SDMAQueue *q, uint32_t header, sdmaPollRegMem *pkt)
     sdmaPollRegMemHeader prm_header;
     prm_header.ordinal = header;
 
+    if (q->priv() && cur_vmid == 0) {
+        pkt->address = getGARTAddr(pkt->address);
+    }
+
     DPRINTF(SDMAEngine, "POLL_REGMEM: M=%d, func=%d, op=%d, addr=%p, ref=%d, "
             "mask=%p, retry=%d, pinterval=%d\n", prm_header.mode,
             prm_header.func, prm_header.op, pkt->address, pkt->ref, pkt->mask,
