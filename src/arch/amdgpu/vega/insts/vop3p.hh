@@ -435,6 +435,16 @@ namespace VegaISA
 
         void execute(GPUDynInstPtr gpuDynInst) override;
     };
+
+    class Inst_VOP3P__V_MAD_MIXLO_F16 : public Inst_VOP3P__3OP_X16
+    {
+      public:
+        Inst_VOP3P__V_MAD_MIXLO_F16(InFmt_VOP3P *iFmt)
+            : Inst_VOP3P__3OP_X16(iFmt, "v_mad_mixlo_f16")
+        { }
+
+        void execute(GPUDynInstPtr gpuDynInst) override;
+    };
 } // namespace VegaISA
 } // namespace gem5
 
