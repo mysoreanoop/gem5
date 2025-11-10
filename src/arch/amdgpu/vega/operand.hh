@@ -120,6 +120,12 @@ namespace VegaISA
         {
         }
 
+        static constexpr bool
+        isIntegral()
+        {
+            return std::is_integral_v<DataType>;
+        }
+
         /**
          * certain vector operands can read from the vrf/srf or constants.
          * we use this method to first determine the type of the operand,
