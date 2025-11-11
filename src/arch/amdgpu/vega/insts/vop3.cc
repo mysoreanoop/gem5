@@ -32,6 +32,7 @@
 #include "arch/amdgpu/common/dtype/mxfp_types.hh"
 #include "arch/amdgpu/vega/insts/inst_util.hh"
 #include "arch/amdgpu/vega/insts/instructions.hh"
+#include "arch/arm/insts/fplib.hh"
 
 namespace gem5
 {
@@ -1673,7 +1674,98 @@ namespace VegaISA
     void
     Inst_VOP3__V_MUL_F16::execute(GPUDynInstPtr gpuDynInst)
     {
-        panicUnimplemented();
+        Wavefront *wf = gpuDynInst->wavefront();
+        ConstVecOperandU16 src0(gpuDynInst, extData.SRC0);
+        ConstVecOperandU16 src1(gpuDynInst, extData.SRC1);
+        VecOperandU16 vdst(gpuDynInst, instData.VDST);
+
+        src0.readSrc();
+        src1.readSrc();
+
+        fatal_if(instData.CLAMP,
+                 "Clamping not implemented in v_mul_f16");
+        fatal_if(instData.OPSEL != 0,
+                 "Opsel not implemented in v_mul_f16");
+        fatal_if(extData.OMOD != 0,
+                 "Omod not implemented in v_mul_f16");
+
+        for (int lane = 0; lane < NumVecElemPerVecReg; ++lane) {
+            if (wf->execMask(lane)) {
+                // Temporary values for checking corner cases (NaN, Inf, +-0).
+                float s0, s1;
+
+                AMDGPU::mxfloat16 tmp0(uint32_t(src0[lane]));
+                AMDGPU::mxfloat16 tmp1(uint32_t(src1[lane]));
+                s0 = float(tmp0);
+                s1 = float(tmp1);
+
+                if (instData.ABS & 0x1) {
+                    s0 = std::fabs(s0);
+                }
+                if (instData.ABS & 0x2) {
+                    s1 = std::fabs(s1);
+                }
+                if (extData.NEG & 0x1) {
+                    s0 = -s0;
+                }
+                if (extData.NEG & 0x2) {
+                    s1 = -s1;
+                }
+
+                if (std::isnan(s0) ||
+                    std::isnan(s1)) {
+                    vdst[lane] = uint32_t(AMDGPU::fp16_e5m10_info::nan) >> 16;
+                } else if ((std::fpclassify(s0) == FP_SUBNORMAL ||
+                           std::fpclassify(s0) == FP_ZERO) &&
+                           !std::signbit(s0)) {
+                    if (std::isinf(s1)) {
+                        vdst[lane] = uint32_t(AMDGPU::fp16_e5m10_info::nan) >> 16;
+                    } else if (!std::signbit(s1)) {
+                        vdst[lane] = 0x0; // +0.0
+                    } else {
+                        vdst[lane] = 0x8000; // -0.0
+                    }
+                } else if ((std::fpclassify(s0) == FP_SUBNORMAL ||
+                           std::fpclassify(s0) == FP_ZERO) &&
+                           std::signbit(s0)) {
+                    if (std::isinf(s1)) {
+                        vdst[lane] = uint32_t(AMDGPU::fp16_e5m10_info::nan) >> 16;
+                    } else if (std::signbit(s1)) {
+                        vdst[lane] = 0x0; // +0.0
+                    } else {
+                        vdst[lane] = 0x8000; // -0.0
+                    }
+                } else if (std::isinf(s0) &&
+                           !std::signbit(s0)) {
+                    if (std::fpclassify(s1) == FP_SUBNORMAL ||
+                        std::fpclassify(s1) == FP_ZERO) {
+                        vdst[lane] = uint32_t(AMDGPU::fp16_e5m10_info::nan) >> 16;
+                    } else if (!std::signbit(s1)) {
+                        vdst[lane] = uint32_t(AMDGPU::fp16_e5m10_info::inf) >> 16;
+                    } else {
+                        vdst[lane] = uint32_t(AMDGPU::fp16_e5m10_info::inf) >> 16;
+                        vdst[lane] |= 0x8000;
+                    }
+                } else if (std::isinf(s0) &&
+                           std::signbit(s0)) {
+                    if (std::fpclassify(s1) == FP_SUBNORMAL ||
+                        std::fpclassify(s1) == FP_ZERO) {
+                        vdst[lane] = uint32_t(AMDGPU::fp16_e5m10_info::nan) >> 16;
+                    } else if (std::signbit(s1)) {
+                        vdst[lane] = uint32_t(AMDGPU::fp16_e5m10_info::inf) >> 16;
+                    } else {
+                        vdst[lane] = uint32_t(AMDGPU::fp16_e5m10_info::inf) >> 16;
+                        vdst[lane] |= 0x8000;
+                    }
+                } else {
+                    ArmISA::FPSCR fpscr;
+                    vdst[lane] =
+                        ArmISA::fplibMul(src0[lane], src1[lane], fpscr);
+                }
+            }
+        }
+
+        vdst.write();
     } // execute
     // --- Inst_VOP3__V_MAC_F16 class methods ---
 
