@@ -72,7 +72,8 @@ SimplePoolManager::canAllocate(uint32_t numRegions, uint32_t size)
 int
 SimplePoolManager::getTotAllocableWfsForRegsUsed(uint32_t size)
 {
-    return (int)(_reservedGroups == 0);
+    uint32_t actualSize = minAllocatedElements(size);
+    return _reservedGroups == 0 ? poolSize() / actualSize : 0;
 }
 
 void

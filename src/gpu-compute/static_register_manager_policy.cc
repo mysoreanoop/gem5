@@ -130,9 +130,9 @@ int
 StaticRegisterManagerPolicy::getTotAllocableWfsForSregUsed(
             int simdId, int demandPerWf,
             bool early, int earlyDemandPerWf) {
-                DPRINTF(GPUVRF, "Checking how many WFs can be %s "
-                    "mapped on SIMD%d for SGPRs used\n",
-                     early ? "early" : "fully", simdId);
+    DPRINTF(GPUVRF, "Checking how many WFs can be %s "
+        "mapped on SIMD%d for SGPRs used\n",
+            early ? "early" : "fully", simdId);
     DPRINTF(GPUVRF, "demandPerWF: %d | earlyDemandPerWF: %d\n",
         demandPerWf, earlyDemandPerWf);
 

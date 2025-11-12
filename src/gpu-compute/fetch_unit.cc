@@ -685,7 +685,7 @@ FetchUnit::FetchBufDesc::decodeSplitInst()
     curr_pc_offset = last_buf_pc->first + readPtr -
                 last_buf_pc->second - wavefront->start_pc;
 
-    if (wavefront->wgId == 0 && wavefront->wfId == 0 && wavefront->kernId == 2)
+    if (wavefront->wgId == 0 && wavefront->wfId == 0)
         DPRINTF(GPUFetch, "PC: %lld | Insn: %s | kernId %d\n",
             curr_pc_offset, gpu_static_inst->disassemble(), wavefront->kernId);
 
