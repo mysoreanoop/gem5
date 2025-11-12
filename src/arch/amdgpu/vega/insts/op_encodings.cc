@@ -1505,8 +1505,10 @@ namespace VegaISA
         std::stringstream dis_stream;
         dis_stream << _opcode << " ";
 
-        if (numDstRegOperands())
-            dis_stream << "v" << extData.VDST << ", ";
+        if (numDstRegOperands()) {
+            int ndw = getOperandSize(getNumOperands() - 1) / 4;
+            dis_stream << opSelectorToRegSym(extData.VDST, ndw) << ", ";
+        }
 
         dis_stream << "v" << extData.ADDR;
 
