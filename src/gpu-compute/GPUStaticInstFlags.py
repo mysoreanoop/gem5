@@ -112,4 +112,5 @@ class GPUStaticInstFlags(Enum):
         "MAD",  # MAD
         "MFMA",  # MFMA
         "NoAddr",  # Request has no address but goes to SQC for timing
+        "InternalInst",  # Internal instructions when binary can't be instrumented
     ]

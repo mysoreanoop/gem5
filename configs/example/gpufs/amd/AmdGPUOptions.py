@@ -143,6 +143,21 @@ def addAmdGPUOptions(parser):
         default="static",
         help="Register manager policy",
     )
+
+    parser.add_argument(
+        "--lookahead",
+        action="store_true",
+        help="Enable lookahead dispatch",
+    )
+
+    # TODO make this optional since used only non-instrumentable bins
+    parser.add_argument(
+        "--lad-annot-file",
+        type=str,
+        default="./lad.json",
+        help="LAD annotations json file path",
+    )
+
     parser.add_argument(
         "--vreg-file-size",
         type=int,

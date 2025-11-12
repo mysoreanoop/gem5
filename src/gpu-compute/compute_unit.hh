@@ -447,7 +447,9 @@ class ComputeUnit : public ClockedObject
         LDS_UPGRADE, // for both LDS operations, delta in (int)% of full alloc
         LDS_DOWNGRADE,
         VGPR_TERMINAL,
-        LDS_TERMINAL
+        LDS_TERMINAL,
+        VGPR_BARRIER, // only applicable with JSON stub for LAD
+        LDS_BARRIER // only applicable with JSON stub for LAD
     };
 
     // update requested by WF, for upgrade, downgrade, or terminality

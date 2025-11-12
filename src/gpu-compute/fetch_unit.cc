@@ -589,10 +589,59 @@ FetchUnit::FetchBufDesc::decodeInsts()
             TheGpuISA::MachInst mach_inst
                 = reinterpret_cast<TheGpuISA::MachInst>(readPtr);
             GPUStaticInst *gpu_static_inst = _decoder->decode(mach_inst);
+
+            Addr curr_pc_offset;
+
+            auto last_buf_pc = bufferedPCs.rbegin();
+            curr_pc_offset = last_buf_pc->first + readPtr -
+                        last_buf_pc->second - wavefront->start_pc;
+            if (wavefront->wgId == 0 && wavefront->wfId == 0 && wavefront->kernId == 2)
+                DPRINTF(GPUFetch, "PC: %lld | Insn: %s | kernId %d\n",
+                    curr_pc_offset, gpu_static_inst->disassemble(), wavefront->kernId);
+
+
             readPtr += gpu_static_inst->instSize();
 
             assert(readPtr <= bufEnd);
 
+            if (wavefront->lad) {
+                // translate VGPRs for LAD
+                gpu_static_inst->translateLAD(wavefront);
+                if (wavefront->pc_magicInsn.find(curr_pc_offset) != wavefront->pc_magicInsn.end()) {
+                    // idea is to set both ResUpdate, ResBarrier/LdsBarrier and InternalInst
+                    // where ResUpdate executes, it is executed alongside, not in place of
+                    // the original instruction (loses decode latency)
+                    GPUStaticInstFlags::Flags flag;
+                    switch (wavefront->pc_magicInsn[curr_pc_offset] & 0xff) {
+                        case 0xf0: // VGPR_UPGRADE
+                        case 0xf1: // VGPR_DOWNGRADE
+                        case 0xf2: // SGPR_UPGRADE
+                        case 0xf3: // SGPR_DOWNGRADE
+                        case 0xf4: // LDS_UPGRADE
+                        case 0xf5: // LDS_DOWNGRADE
+                        case 0xf6: // VGPR_TERMINAL
+                        case 0xf7: // LDS_TERMINAL
+                            flag = GPUStaticInstFlags::Flags::ResUpdate;
+                            return;
+                        case 0xf8: // VGPR_BARRIER
+                            flag = GPUStaticInstFlags::Flags::ResBarrier;
+                            return;
+                        case 0xf9: // LDS_BARRIER
+                            flag = GPUStaticInstFlags::Flags::LdsBarrier;
+                            break;
+                        default:
+                            panic("Unrecognized instruction flag in LAD: %x\n",
+                                wavefront->pc_magicInsn[curr_pc_offset] >> 8);
+                    }
+
+                    gpu_static_inst->setFlag(GPUStaticInst::Flags::InternalInst);
+                    gpu_static_inst->setFlag(flag);
+                    ComputeUnit::RTYPE resource = static_cast<ComputeUnit::RTYPE>(wavefront->pc_magicInsn[curr_pc_offset] & 0xff);
+                    uint32_t delta = (wavefront->pc_magicInsn[curr_pc_offset] & 0xff00) >> 8;
+                    gpu_static_inst->ladParam(resource, delta);
+                    DPRINTF(GPUFetch, "Set LAD flag: 0x%x, 0x%x\n", wavefront->pc_magicInsn[curr_pc_offset] >> 8, wavefront->pc_magicInsn[curr_pc_offset] & 0xff);
+                }
+            }
             GPUDynInstPtr gpu_dyn_inst
                 = std::make_shared<GPUDynInst>(wavefront->computeUnit,
                                                wavefront, gpu_static_inst,
@@ -630,8 +679,57 @@ FetchUnit::FetchBufDesc::decodeSplitInst()
     TheGpuISA::MachInst mach_inst
         = reinterpret_cast<TheGpuISA::MachInst>(&split_inst);
     GPUStaticInst *gpu_static_inst = _decoder->decode(mach_inst);
+    Addr curr_pc_offset;
+
+    auto last_buf_pc = bufferedPCs.rbegin();
+    curr_pc_offset = last_buf_pc->first + readPtr -
+                last_buf_pc->second - wavefront->start_pc;
+
+    if (wavefront->wgId == 0 && wavefront->wfId == 0 && wavefront->kernId == 2)
+        DPRINTF(GPUFetch, "PC: %lld | Insn: %s | kernId %d\n",
+            curr_pc_offset, gpu_static_inst->disassemble(), wavefront->kernId);
+
+
     readPtr += (gpu_static_inst->instSize() - dword_size);
     assert(readPtr < bufEnd);
+    if (wavefront->lad) {
+        // translate VGPRs for LAD
+        gpu_static_inst->translateLAD(wavefront);
+        if (wavefront->pc_magicInsn.find(curr_pc_offset) != wavefront->pc_magicInsn.end()) {
+            // idea is to set both ResUpdate, ResBarrier/LdsBarrier and InternalInst
+            // where ResUpdate executes, it is executed alongside, not in place of
+            // the original instruction (loses decode latency)
+            GPUStaticInstFlags::Flags flag;
+            switch (wavefront->pc_magicInsn[curr_pc_offset] & 0xff) {
+                case 0xf0: // VGPR_UPGRADE
+                case 0xf1: // VGPR_DOWNGRADE
+                case 0xf2: // SGPR_UPGRADE
+                case 0xf3: // SGPR_DOWNGRADE
+                case 0xf4: // LDS_UPGRADE
+                case 0xf5: // LDS_DOWNGRADE
+                case 0xf6: // VGPR_TERMINAL
+                case 0xf7: // LDS_TERMINAL
+                    flag = GPUStaticInstFlags::Flags::ResUpdate;
+                    return;
+                case 0xf8: // VGPR_BARRIER
+                    flag = GPUStaticInstFlags::Flags::ResBarrier;
+                    return;
+                case 0xf9: // LDS_BARRIER
+                    flag = GPUStaticInstFlags::Flags::LdsBarrier;
+                    break;
+                default:
+                    panic("Unrecognized instruction flag in LAD: %x\n",
+                        wavefront->pc_magicInsn[curr_pc_offset] >> 8);
+            }
+
+            gpu_static_inst->setFlag(GPUStaticInst::Flags::InternalInst);
+            gpu_static_inst->setFlag(flag);
+            ComputeUnit::RTYPE resource = static_cast<ComputeUnit::RTYPE>(wavefront->pc_magicInsn[curr_pc_offset] & 0xff);
+            uint32_t delta = (wavefront->pc_magicInsn[curr_pc_offset] & 0xff00) >> 8;
+            gpu_static_inst->ladParam(resource, delta);
+            DPRINTF(GPUFetch, "Set LAD flag: 0x%x, 0x%x\n", wavefront->pc_magicInsn[curr_pc_offset] >> 8, wavefront->pc_magicInsn[curr_pc_offset] & 0xff);
+        }
+    }
 
     GPUDynInstPtr gpu_dyn_inst
         = std::make_shared<GPUDynInst>(wavefront->computeUnit,

@@ -178,6 +178,30 @@ class HSAQueueEntry
         return numVgprs;
     }
 
+    void
+    numEarlyVectorRegs(int e)
+    {
+        numEarlyVgprs = e;
+    }
+
+    void
+    numEarlyScalarRegs(int e)
+    {
+        numEarlySgprs = e;
+    }
+
+    void
+    pctEarlyLDSBytes(int e)
+    {
+        pctEarlyLDS = e;
+    }
+
+    void
+    makeLookaheadDisp()
+    {
+        lookahead_disp = 1;
+    }
+
     int
     numEarlyVectorRegs() const
     {
@@ -193,7 +217,8 @@ class HSAQueueEntry
     int
     pctEarlyLDSBytes() const
     {
-        return pctEarlyLDS;    }
+        return pctEarlyLDS;
+    }
 
     bool
     isLookaheadDisp() const

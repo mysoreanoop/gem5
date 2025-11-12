@@ -233,6 +233,7 @@ class GPUDynInst : public GPUExecContext
     bool isResBarrier() const;
     bool isLdsBarrier() const;
     bool isResUpdate() const;
+    bool isInternalInst() const;
     bool isMemSync() const;
     bool isMemRef() const;
     bool isFlat() const;
@@ -487,6 +488,9 @@ class GPUDynInst : public GPUExecContext
 
     bool isSystemReq() { return systemReq; }
     void setSystemReq() { systemReq = true; }
+
+    void ladParam(ComputeUnit::RTYPE resource, uint32_t delta);
+    std::pair<ComputeUnit::RTYPE, uint32_t> ladParam();
 
   private:
     GPUStaticInst *_staticInst;

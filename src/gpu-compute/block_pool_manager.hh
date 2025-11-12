@@ -147,7 +147,7 @@ class BlockPoolManager : public PoolManager
     }
 
     // check how many instances of a full alloc reqs can be satisfied
-    int getTotAllocableWfsForRegsUsed(uint32_t size) const;
+    int getTotAllocableWfsForRegsUsed(uint32_t size);
 
     // check how many instances of earlySize FREE blocks
     // and fullSize TERMINAL blocks can be satisfied
@@ -182,8 +182,28 @@ class BlockPoolManager : public PoolManager
     bool canExtend(int id);
     void extendRegion(int id);
 
+    // overridden
+    std::string printRegion() override { return "";}
+    bool canAllocate(uint32_t numRegions, uint32_t size) override
+                                      { return false; }
+    uint32_t regionSize(std::pair<uint32_t,uint32_t> &region) override
+                                      { return 0; }
+    void resetRegion(const int & regsPerSimd) override;
+
     // translate a virtual offset to an absolute physical address.
     uint32_t translate(int id, uint32_t virtualOffset) const;
+
+  private:
+    // actual size of a region (normalized to the minimum size that can
+    // be reserved)
+    uint32_t _regionSize;
+    // total registers available - across chunks
+    uint32_t _totRegSpaceAvailable;
+
+    int totalRegSpace;
+    int nextId = 0;
+    uint32_t m_blockSize;
+    uint32_t m_poolSize;
 
     /* utility functions */
     int countBlocksWithStatus(BlockStatus status) const;
@@ -199,28 +219,6 @@ class BlockPoolManager : public PoolManager
             return false;
         }
     };
-
-
-   // overridden
-   std::string printRegion() override { return "";}
-   bool canAllocate(uint32_t numRegions, uint32_t size) override
-                                      { return false; }
-   uint32_t regionSize(std::pair<uint32_t,uint32_t> &region) override
-                                      { return 0; }
-   void resetRegion(const int & regsPerSimd) override;
-
-  private:
-    // actual size of a region (normalized to the minimum size that can
-    // be reserved)
-    uint32_t _regionSize;
-    // total registers available - across chunks
-    uint32_t _totRegSpaceAvailable;
-
-    int totalRegSpace;
-    int nextId = 0;
-    uint32_t m_blockSize;
-    uint32_t m_poolSize;
-
 
     /* current design maintains a pool of contiguous blocks
         this was a design choice for better cache locality for

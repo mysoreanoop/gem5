@@ -74,6 +74,7 @@ Shader::Shader(const Params &p) : ClockedObject(p),
 {
     gpuCmdProc.setShader(this);
     _dispatcher.setShader(this);
+    lad = gpuCmdProc.lad;
 
     // These apertures are set by the driver. In full system mode that is done
     // using a PM4 packet but the emulated SE mode driver does not set them
@@ -297,7 +298,7 @@ Shader::dispatchWorkgroups(HSAQueueEntry *task)
     // partial releases, over full-disp through full release
     int curCu = nextSchedCu;
     int disp_count(0);
-    bool lookahead(task->isLookaheadDisp());
+    bool lookahead(lad && task->isLookaheadDisp());
 
     if (cuList[curCu]->resourceUpdated()) {
         DPRINTF(GPUDisp, "lookahead dispatch for Wg%d "
@@ -370,7 +371,7 @@ Shader::dispatchWorkgroups(HSAQueueEntry *task)
         curCu = nextSchedCu;
     }
 
-     DPRINTF(GPUWgLatency, "Shader Dispatched %d Wgs\n", disp_count);
+    DPRINTF(GPUWgLatency, "Shader Dispatched %d Wgs\n", disp_count);
     if (cuList[curCu]->resourceUpdated()) {
         // conservatively reset resource update
         cuList[curCu]->resourceUpdated(false,-1);

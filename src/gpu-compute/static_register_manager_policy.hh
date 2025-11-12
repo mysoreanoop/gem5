@@ -52,7 +52,10 @@ class StaticRegisterManagerPolicy : public RegisterManagerPolicy
 
     bool canAllocateVgprs(int simdId, int nWfs, int demandPerWf) override;
     bool canAllocateSgprs(int simdId, int nWfs, int demandPerWf) override;
-
+    int getTotAllocableWfsForVregUsed(int simdId, int demandPerWf,
+        bool early, int earlyDemandPerWf) override;
+    int getTotAllocableWfsForSregUsed(int simdId, int demandPerWf,
+        bool early, int earlyDemandPerWf) override;
     void allocateRegisters(Wavefront *w, int vectorDemand,
         int scalarDemand) override;
 

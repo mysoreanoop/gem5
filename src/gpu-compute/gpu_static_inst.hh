@@ -44,7 +44,7 @@
 #include <cstdint>
 #include <string>
 #include <vector>
-
+#include "debug/GPUFetch.hh"
 #include "enums/GPUStaticInstFlags.hh"
 #include "enums/StorageClassType.hh"
 #include "gpu-compute/gpu_dyn_inst.hh"
@@ -83,6 +83,8 @@ class GPUStaticInst : public GPUStaticInstFlags
     virtual void execute(GPUDynInstPtr gpuDynInst) = 0;
     virtual void generateDisassembly() = 0;
     const std::string& disassemble();
+
+    virtual void translateLAD(Wavefront *wf) { DPRINTF(GPUFetch, "Not translating for: %s", disassemble()); }
     virtual int getNumOperands() = 0;
     virtual bool isFlatScratchRegister(int opIdx) = 0;
     virtual bool isExecMaskRegister(int opIdx) = 0;
@@ -100,6 +102,9 @@ class GPUStaticInst : public GPUStaticInstFlags
     int numDstScalarOperands();
     int numSrcScalarDWords();
     int numDstScalarDWords();
+
+    void ladParam(ComputeUnit::RTYPE resource, uint32_t delta) {_lad_resource = resource; _lad_delta = delta; }
+    std::pair<ComputeUnit::RTYPE, uint32_t> ladParam() { return std::make_pair(_lad_resource, _lad_delta);}
 
     int maxOperandSize();
 
@@ -127,6 +132,7 @@ class GPUStaticInst : public GPUStaticInstFlags
 
     bool isBarrier() const { return _flags[MemBarrier]; }
     bool isResUpdate() const {return _flags[ResUpdate]; }
+    bool isInternalInst() const {return _flags[InternalInst]; }
     bool isResBarrier() const {return _flags[ResBarrier]; }
     bool isLdsBarrier() const {return _flags[LdsBarrier]; }
     bool isMemSync() const { return _flags[MemSync]; }
@@ -308,6 +314,8 @@ class GPUStaticInst : public GPUStaticInstFlags
     std::string disassembly;
     int _instNum;
     int _instAddr;
+    uint32_t _lad_delta;
+    ComputeUnit::RTYPE _lad_resource;
     std::vector<OperandInfo> srcOps;
     std::vector<OperandInfo> dstOps;
 

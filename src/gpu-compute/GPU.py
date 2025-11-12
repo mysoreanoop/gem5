@@ -404,6 +404,10 @@ class GPUCommandProcessor(DmaVirtDevice):
         0,
         "Skip kernels until reaching this kernel (counting only non-blit kernels)",
     )
+    lad_annot_file = Param.String(
+        "", "Full path to the lad_annotations.json file"
+    )
+    lad = Param.Bool(False, "Enable lookahead dispatch functionality")
 
 
 class StorageClassType(Enum):

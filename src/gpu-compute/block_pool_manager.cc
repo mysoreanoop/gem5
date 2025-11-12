@@ -124,7 +124,7 @@ std::vector<int> BlockPoolManager::findBlocks(int count,
 }
 
 // check how many instances of size can be allocated
-int BlockPoolManager::getTotAllocableWfsForRegsUsed(uint32_t size) const {
+int BlockPoolManager::getTotAllocableWfsForRegsUsed(uint32_t size) {
     // check if enough FREE blocks exist
     return countBlocksWithStatus(BlockStatus::FREE) /
             calculateNumBlocksNeeded(size);

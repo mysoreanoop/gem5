@@ -396,7 +396,7 @@ ComputeUnit::mapWaveToScalarMem(Wavefront *w) const
 void
 ComputeUnit::fillKernelState(Wavefront *w, HSAQueueEntry *task)
 {
-    w->resizeRegFiles(task->numVectorRegs(), task->numScalarRegs());
+    w->updateRegFileSize(task->numVectorRegs(), task->numScalarRegs());
     w->workGroupSz[0] = task->wgSize(0);
     w->workGroupSz[1] = task->wgSize(1);
     w->workGroupSz[2] = task->wgSize(2);
@@ -448,6 +448,7 @@ ComputeUnit::startWavefront(Wavefront *w, int waveId, LdsChunk *ldsChunk,
     // WG state
     w->wgId = task->globalWgId();
     w->dispatchId = task->dispatchId();
+    w->lad = shader->gpuCmdProc.lad_annotation_parser.isDispLad(task->dispatchId());
     w->workGroupId[0] = w->wgId % task->numWg(0);
     w->workGroupId[1] = (w->wgId / task->numWg(0)) % task->numWg(1);
     w->workGroupId[2] = w->wgId / (task->numWg(0) * task->numWg(1));
@@ -858,8 +859,8 @@ ComputeUnit::hasDispResources(HSAQueueEntry *task, int &num_wfs_in_wg,
                 DPRINTF(GPUDisp, "Inadequate LDS on CU, returning\n");
             } else {
                 earlyAllocLDS = true;
-                DPRINTF(GPUDisp, "CU[%d] early LDS requested\n",
-                    cu_id);
+                DPRINTF(GPUDisp, "CU[%d] early LDS requested (%d)\n",
+                    cu_id, earlyLDSDemand);
             }
         }
         // else early LDS not necessary
@@ -875,11 +876,13 @@ ComputeUnit::hasDispResources(HSAQueueEntry *task, int &num_wfs_in_wg,
     if (!barrier_avail) {
         stats.wgBlockedDueBarrierAllocation++;
     }
-
-    DPRINTF(GPUDisp, "CU[%d] limiting resource:\n\t"
-            "Slots %d | VGPR %d | SGPR %d| LDS %d | Bar %d\n",
-            cu_id, numMappedWfs < numWfs, !vregAvail, !sregAvail,
+    
+    if (numMappedWfs < numWfs) {
+        DPRINTF(GPUDisp, "CU[%d] limiting resource:\n\t"
+            "VGPR %d | SGPR %d| LDS %d | Bar %d\n",
+            cu_id, !vregAvail, !sregAvail,
             !ldsAvail, !barrier_avail);
+    }
 
     // Return true if the following are all true:
     // (a) all WFs of the WG were mapped to free WF slots
@@ -2586,9 +2589,10 @@ ComputeUnit::LDSPort::sendTimingReq(PacketPtr pkt)
                 gpuDynInst->wfSlotId, pkt->req->getPaddr());
         return false;
     } else {
-        DPRINTF(GPUPort, "CU%d: WF[%d][%d]: addr %#x lds req sent!\n",
+        DPRINTF(GPULDS, "CU%d: WF[%d][%d]: addr %#x pc %llx lds req sent!\n",
                 computeUnit->cu_id, gpuDynInst->simdId,
-                gpuDynInst->wfSlotId, pkt->req->getPaddr());
+                gpuDynInst->wfSlotId, pkt->req->getPaddr(),
+                gpuDynInst->pc());
         return true;
     }
 }
@@ -2670,10 +2674,10 @@ ComputeUnit::resourceUpdate(Wavefront *wf, RTYPE resource, int delta)
             // extends the allocated regsiters to full allocation
             DPRINTF(GPUSync, "upgrade %s\n",
                     resource == VGPR_UPGRADE ? "vgpr" : "sgpr");
-            // original WF whose registers were reserved for extension
-            // by the WF-in-question would be auto reassigned if relinquished
-            // by now, and the resource barrier will take care of waiting
-            // until then
+            // registers that were reserved for this LAD WG/WF's extension
+            // is transparently reassigned (from reserved state to granted)
+            // when the original owner WG/WF terminates, and,
+            // the resource barrier will take care of waiting until then
             registerManager->extendRegisters(wf);
             break;
         case VGPR_TERMINAL:
@@ -2688,7 +2692,7 @@ ComputeUnit::resourceUpdate(Wavefront *wf, RTYPE resource, int delta)
             break;
         case LDS_UPGRADE:
             DPRINTF(GPULDS, "LDS upgrade, automatic delta\n");
-            // do nothing, the allocation transfer automatically
+            // do nothing, the allocation transfers automatically
             break;
         case LDS_TERMINAL:
             DPRINTF(GPULDS, "LDS terminal\n");

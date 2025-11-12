@@ -113,6 +113,20 @@ DynPoolManager::canAllocate(uint32_t numRegions, uint32_t size)
     }
 }
 
+int
+DynPoolManager::getTotAllocableWfsForRegsUsed(uint32_t size)
+{
+    uint32_t actualSize = minAllocatedElements(size);
+    int numAvailChunks = 0;
+    DPRINTF(GPUVRF, "Checking how many regions of size %d "
+                    "can be allocated\n", actualSize);
+    for (auto it : freeSpaceRecord) {
+        numAvailChunks += (it.second - it.first) / actualSize;
+    }
+
+    return numAvailChunks;
+}
+
 uint32_t
 DynPoolManager::allocateRegion(const uint32_t size,
                                     uint32_t *reservedPoolSize)

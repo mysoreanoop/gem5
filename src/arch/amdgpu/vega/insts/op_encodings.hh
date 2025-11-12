@@ -265,6 +265,7 @@ namespace VegaISA
         int instSize() const override;
         void generateDisassembly() override;
 
+        void translateLAD(Wavefront *wf) override;
         void initOperandInfo() override;
 
       protected:
@@ -392,6 +393,7 @@ namespace VegaISA
         int instSize() const override;
         void generateDisassembly() override;
 
+        void translateLAD(Wavefront *wf) override;
         void initOperandInfo() override;
 
       protected:
@@ -414,6 +416,7 @@ namespace VegaISA
         int instSize() const override;
         void generateDisassembly() override;
 
+        void translateLAD(Wavefront *wf) override;
         void initOperandInfo() override;
 
       protected:
@@ -602,6 +605,7 @@ namespace VegaISA
         int instSize() const override;
         void generateDisassembly() override;
 
+        void translateLAD(Wavefront *wf) override;
         void initOperandInfo() override;
 
       protected:
@@ -657,6 +661,7 @@ namespace VegaISA
         int instSize() const override;
         void generateDisassembly() override;
 
+        void translateLAD(Wavefront *wf) override;
         void initOperandInfo() override;
 
       protected:
@@ -678,6 +683,7 @@ namespace VegaISA
         int instSize() const override;
         void generateDisassembly() override;
 
+        void translateLAD(Wavefront *wf) override;
         void initOperandInfo() override;
 
       protected:
@@ -850,6 +856,7 @@ namespace VegaISA
         int instSize() const override;
         void generateDisassembly() override;
 
+        void translateLAD(Wavefront *wf) override;
         void initOperandInfo() override;
 
       protected:
@@ -871,6 +878,7 @@ namespace VegaISA
         int instSize() const override;
         void generateDisassembly() override;
 
+        void translateLAD(Wavefront *wf) override;
         void initOperandInfo() override;
 
       protected:
@@ -888,6 +896,8 @@ namespace VegaISA
 
                     (reinterpret_cast<T*>(gpuDynInst->d_data))[lane]
                         = wf->ldsChunk->read<T>(vaddr);
+                    DPRINTF(GPULDS, "LDS DS_T Read Kernel %04d WG %04d WF %04d PC 0x%llx Lane %02d Addr 0x%llx\n",
+                            wf->kernId, wf->wgId, wf->wfId, wf->pc(), lane, vaddr);
                 }
             }
         }
@@ -908,6 +918,8 @@ namespace VegaISA
                             = wf->ldsChunk->read<VecElemU32>(
                                 vaddr + i*sizeof(VecElemU32));
                     }
+                    DPRINTF(GPULDS, "LDS DS_N Read Kernel %04d WG %04d WF %04d PC 0x%llx Lane %02d Addr 0x%llx\n",
+                            wf->kernId, wf->wgId, wf->wfId, wf->pc(), lane, vaddr);
                 }
             }
         }
@@ -931,6 +943,10 @@ namespace VegaISA
                         = wf->ldsChunk->read<T>(vaddr0);
                     (reinterpret_cast<T*>(gpuDynInst->d_data))[lane * 2 + 1]
                         = wf->ldsChunk->read<T>(vaddr1);
+                    DPRINTF(GPULDS, "LDS DS_2 Read Kernel %04d WG %04d WF %04d PC 0x%llx Lane %02d Addr 0x%llx\n",
+                            wf->kernId, wf->wgId, wf->wfId, wf->pc(), lane, vaddr0);
+                    DPRINTF(GPULDS, "LDS DS_2 Read Kernel %04d WG %04d WF %04d PC 0x%llx Lane %02d Addr 0x%llx\n",
+                            wf->kernId, wf->wgId, wf->wfId, wf->pc(), lane, vaddr1);
                 }
             }
         }
@@ -948,6 +964,8 @@ namespace VegaISA
                     Addr vaddr = gpuDynInst->addr[lane] + offset;
                     wf->ldsChunk->write<T>(vaddr,
                         (reinterpret_cast<T*>(gpuDynInst->d_data))[lane]);
+                    DPRINTF(GPULDS, "LDS DS_T Write Kernel %04d WG %04d WF %04d PC 0x%llx Lane %02d Addr 0x%llx\n",
+                            wf->kernId, wf->wgId, wf->wfId, wf->pc(), lane, vaddr);
                 }
             }
         }
@@ -969,6 +987,8 @@ namespace VegaISA
                             (reinterpret_cast<VecElemU32*>(
                                 gpuDynInst->d_data))[lane * N + i]);
                     }
+                    DPRINTF(GPULDS, "LDS DS_N Write Kernel %04d WG %04d WF %04d PC 0x%llx Lane %02d Addr 0x%llx\n",
+                            wf->kernId, wf->wgId, wf->wfId, wf->pc(), lane, vaddr);
                 }
             }
         }
@@ -991,6 +1011,11 @@ namespace VegaISA
                         gpuDynInst->d_data))[lane * 2]);
                     wf->ldsChunk->write<T>(vaddr1, (reinterpret_cast<T*>(
                         gpuDynInst->d_data))[lane * 2 + 1]);
+                    DPRINTF(GPULDS, "LDS DS_2 Write Kernel %04d WG %04d WF %04d PC 0x%llx Lane %02d Addr 0x%llx\n",
+                            wf->kernId, wf->wgId, wf->wfId, wf->pc(), lane, vaddr0);
+                    DPRINTF(GPULDS, "LDS DS_2 Write Kernel %04d WG %04d WF %04d PC 0x%llx Lane %02d Addr 0x%llx\n",
+                            wf->kernId, wf->wgId, wf->wfId, wf->pc(), lane, vaddr1);
+
                 }
             }
         }
@@ -1014,6 +1039,8 @@ namespace VegaISA
 
                     (reinterpret_cast<T*>(gpuDynInst->d_data))[lane]
                         = wf->ldsChunk->atomic<T>(vaddr, std::move(amo_op));
+                    DPRINTF(GPULDS, "LDS DS_T Atomic Kernel %04d WG %04d WF %04d PC 0x%llx Lane %02d Addr 0x%llx\n",
+                            wf->kernId, wf->wgId, wf->wfId, wf->pc(), lane, vaddr);
                 }
             }
         }
@@ -1045,6 +1072,7 @@ namespace VegaISA
         int instSize() const override;
         void generateDisassembly() override;
 
+        void translateLAD(Wavefront *wf) override;
         void initOperandInfo() override;
 
       protected:
@@ -1320,6 +1348,7 @@ namespace VegaISA
         int instSize() const override;
         void generateDisassembly() override;
 
+        void translateLAD(Wavefront *wf) override;
         void initOperandInfo() override;
 
       protected:
@@ -1344,6 +1373,8 @@ namespace VegaISA
                         Addr vaddr = gpuDynInst->addr[lane];
                         (reinterpret_cast<T*>(gpuDynInst->d_data))[lane]
                             = wf->ldsChunk->read<T>(vaddr);
+                        DPRINTF(GPULDS, "LDS FLAT_T Read Kernel %04d WG %04d WF %04d PC 0x%llx Lane %02d Addr 0x%llx\n",
+                            wf->kernId, wf->wgId, wf->wfId, wf->pc(), lane, vaddr);
                     }
                 }
             }
@@ -1371,6 +1402,8 @@ namespace VegaISA
                                 = wf->ldsChunk->read<VecElemU32>(
                                         vaddr + i*sizeof(VecElemU32));
                         }
+                        DPRINTF(GPULDS, "LDS FLAT_N Read Kernel %04d WG %04d WF %04d PC 0x%llx Lane %02d Addr 0x%llx\n",
+                            wf->kernId, wf->wgId, wf->wfId, wf->pc(), lane, vaddr);
                     }
                 }
             }
@@ -1397,6 +1430,8 @@ namespace VegaISA
                         Addr vaddr = gpuDynInst->addr[lane];
                         wf->ldsChunk->write<T>(vaddr,
                             (reinterpret_cast<T*>(gpuDynInst->d_data))[lane]);
+                        DPRINTF(GPULDS, "LDS FLAT_T Write Kernel %04d WG %04d WF %04d PC 0x%llx Lane %02d Addr 0x%llx\n",
+                            wf->kernId, wf->wgId, wf->wfId, wf->pc(), lane, vaddr);
                     }
                 }
             }
@@ -1426,6 +1461,8 @@ namespace VegaISA
                                 (reinterpret_cast<VecElemU32*>(
                                     gpuDynInst->d_data))[lane * N + i]);
                         }
+                        DPRINTF(GPULDS, "LDS FLAT_N Write Kernel %04d WG %04d WF %04d PC 0x%llx Lane %02d Addr 0x%llx\n",
+                            wf->kernId, wf->wgId, wf->wfId, wf->pc(), lane, vaddr);
                     }
                 }
             }
@@ -1461,6 +1498,8 @@ namespace VegaISA
                         (*amo_op)(reinterpret_cast<uint8_t *>(&tmp));
                         wf->ldsChunk->write<T>(vaddr, tmp);
                         (reinterpret_cast<T*>(gpuDynInst->d_data))[lane] = tmp;
+                        DPRINTF(GPULDS, "LDS FLAT Atomic Kernel %04d WG %04d WF %04d PC 0x%llx Lane %02d Addr 0x%llx\n",
+                            wf->kernId, wf->wgId, wf->wfId, wf->pc(), lane, vaddr);
                     }
                 }
             }

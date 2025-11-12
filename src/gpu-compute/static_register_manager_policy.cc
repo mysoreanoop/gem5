@@ -77,7 +77,7 @@ StaticRegisterManagerPolicy::mapSgpr(Wavefront* w, int sgprIndex)
 {
     panic_if(!((sgprIndex < w->reservedScalarRegs)
              && (w->reservedScalarRegs > 0)),
-             "SGPR index %d is out of range: SGPR range=[0,%d]\n",
+             "SGPR index %d is out of range: SGPR range=[0,%d)\n",
              sgprIndex, w->reservedScalarRegs);
 
     // add the offset from where the SGPRs of the wavefront have been assigned
@@ -106,6 +106,43 @@ StaticRegisterManagerPolicy::canAllocateSgprs(int simdId, int nWfs,
 {
     return cu->registerManager->srfPoolMgrs[simdId]->
         canAllocate(nWfs, demandPerWf);
+}
+int
+StaticRegisterManagerPolicy::getTotAllocableWfsForVregUsed(
+            int simdId, int demandPerWf,
+            bool early, int earlyDemandPerWf) {
+    DPRINTF(GPUVRF, "Checking how many WFs can be %s "
+                    " mapped on SIMD%d for VGPRs used\n",
+                     early ? "early" : "fully", simdId);
+    DPRINTF(GPUVRF, "demandPerWF: %d | earlyDemandPerWF: %d\n",
+            demandPerWf, earlyDemandPerWf);
+
+    panic_if(early, "Lookahead dispatch only supported "
+                    "on BlockRegisterManager\n");
+
+    int out = cu->registerManager->vrfPoolMgrs[simdId]->
+        getTotAllocableWfsForRegsUsed(demandPerWf);
+    DPRINTF(GPUVRF, "%d wfs fully mappable\n", out);
+    return out;
+}
+
+int
+StaticRegisterManagerPolicy::getTotAllocableWfsForSregUsed(
+            int simdId, int demandPerWf,
+            bool early, int earlyDemandPerWf) {
+                DPRINTF(GPUVRF, "Checking how many WFs can be %s "
+                    "mapped on SIMD%d for SGPRs used\n",
+                     early ? "early" : "fully", simdId);
+    DPRINTF(GPUVRF, "demandPerWF: %d | earlyDemandPerWF: %d\n",
+        demandPerWf, earlyDemandPerWf);
+
+    panic_if(early, "Lookahead dispatch only supported "
+                    "on BlockRegisterManager\n");
+
+    int out = cu->registerManager->srfPoolMgrs[simdId]->
+        getTotAllocableWfsForRegsUsed(demandPerWf);
+    DPRINTF(GPUVRF, "%d wfs mappable\n", out);
+    return out;
 }
 
 void

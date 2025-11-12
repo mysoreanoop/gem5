@@ -28,13 +28,16 @@
  * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
  * POSSIBILITY OF SUCH DAMAGE.
  */
-
+#include "gpu-compute/gpu_command_processor.hh"
+#include "gpu-compute/shader.hh"
 #include "gpu-compute/wavefront.hh"
 
 #include "base/bitfield.hh"
 #include "debug/GPUDisp.hh"
 #include "debug/GPUExec.hh"
+#include "debug/GPUFetch.hh"
 #include "debug/GPUInitAbi.hh"
+#include "debug/GPUKernelInfo.hh"
 #include "debug/GPUTrace.hh"
 #include "debug/GPUWgLatency.hh"
 #include "debug/WavefrontStack.hh"
@@ -596,7 +599,7 @@ Wavefront::initRegState(HSAQueueEntry *task, int wgSizeInWorkItems)
 }
 
 void
-Wavefront::resizeRegFiles(int num_vregs, int num_sregs)
+Wavefront::updateRegFileSize(int num_vregs, int num_sregs)
 {
     maxVgprs = num_vregs;
     maxSgprs = num_sregs;
@@ -691,17 +694,29 @@ Wavefront::setStatus(status_e newStatus)
 void
 Wavefront::start(uint64_t _wf_dyn_id, Addr init_pc)
 {
+    start_time = curTick();
     wfDynId = _wf_dyn_id;
-    _pc = init_pc;
+    start_pc = _pc = init_pc;
 
     status = S_RUNNING;
 
     vecReads.resize(maxVgprs, 0);
-    touch_0.resize(maxVgprs, 0);
-    touch_1.resize(maxVgprs, 0);
-    first_kiss.resize(maxVgprs, 0);
-    last_kiss.resize(maxVgprs, 0);
+    if (wfId < 4 && wgId == 0) {
+        first_kiss.resize(maxVgprs, std::make_pair(0, 0));
+        last_kiss.resize(maxVgprs, std::make_pair(0, 0));
+        // records at a granularity of 1kB chunk of LDS
+        first_kiss_lds.resize((ldsChunk->size()>>10) + 1, std::make_pair(0, 0));
+        last_kiss_lds.resize((ldsChunk->size()>>10) + 1, std::make_pair(0, 0));
+    }
 
+    if (lad) {
+        panic_if (!setupTranslateTable(),
+            "LAD translation table error\n");
+
+        DPRINTF(GPUDisp, "LAD Table set up, translations:\n");
+        for (int i=0; i<maxVgprs; i++)
+            DPRINTF(GPUDisp, "\t%d -> %d\n", i, vgprTranslationTab[i]);
+    }
 
     // Create an "instant" in perfetto to show starting WF.
     if (computeUnit->shader->usePerfettoWfDynId) {
@@ -718,6 +733,39 @@ Wavefront::start(uint64_t _wf_dyn_id, Addr init_pc)
         lastWfDynId = wfDynId;
     }
 
+}
+
+/* sets up LAD VGPR translation table and pc_insn map */
+bool
+Wavefront::setupTranslateTable() {
+    for (unsigned v=0; v<maxVgprs; v++) {
+        vgprTranslationTab[v] = computeUnit->shader->
+            gpuCmdProc.lad_annotation_parser.getVgprTxln(dispatchId, v).value_or(v);
+    }
+
+    std::vector<std::pair<int, int>> map_ptr = computeUnit->shader->gpuCmdProc.lad_annotation_parser.getMagicInsnMap(dispatchId);
+    if (!map_ptr.empty())
+        for (const auto& i : map_ptr) {
+            DPRINTF(GPUDisp, "pc_magicInsn :: %d : 0x%x\n", i.first, i.second);
+            pc_magicInsn[i.first] = i.second;
+        }
+    else DPRINTF(GPUDisp, "LAD pc_magicInsn map not valid for this dispatch\n");
+
+    return true;
+}
+
+unsigned
+Wavefront::vgprTranslate(unsigned v) {
+    try {
+        if (v >= 256 && v < (maxVgprs + 256)) {
+            unsigned tr = vgprTranslationTab[v-256] + 256;
+            DPRINTF(GPUFetch, " v%d -> v%d\n", v, tr);
+            return tr;
+        }
+        else return v;
+    } catch (const std::out_of_range& e) {
+        return v;
+    }
 }
 
 bool
@@ -1120,6 +1168,26 @@ Wavefront::exec()
         }
     }
 
+    if (ii->isInternalInst()) {
+        // resource barriers are executed with just the flag
+        // resource updates require a function call that is otherwise
+        // part of the execute() called below. In the JSON annotation
+        // mode, the instruction only carries the flag, and that insn
+        // doesn't implement the trigger. So, we need to explicitly
+        // implement the trigger here.
+        DPRINTF(GPUDisp, "Internal instruction @ PC %llx\n", pc()-start_pc);
+        if (ii->isResUpdate()) {
+            uint32_t delta; 
+            ComputeUnit::RTYPE resource;
+            std::tie(resource, delta) = ii->ladParam();
+
+            ii->computeUnit()->resourceUpdate(this, resource, delta);
+
+            DPRINTF(GPUDisp, "CU%d WF[%d][%d] S_SENDMSG: %d %d\n",
+                ii->computeUnit()->cu_id, simdId, wfSlotId, resource, delta);
+        }
+    }
+
     ii->execute(ii);
     // delete the dynamic instruction from the pipeline map
     computeUnit->deleteFromPipeMap(this);
@@ -1164,10 +1232,6 @@ Wavefront::exec()
             }
             // increment number of reads to this register
             vecReads[virtIdx]++;
-            touch_1[virtIdx] = curTick();
-
-            if (touch_0[virtIdx] == 0)
-                touch_0[virtIdx] = curTick();
         }
     }
 
@@ -1181,10 +1245,6 @@ Wavefront::exec()
             }
             // on a write, reset count of reads to 0
             vecReads[virtIdx] = 0;
-            touch_1[virtIdx] = curTick();
-            if (touch_0[virtIdx] == 0)
-                touch_0[virtIdx] = curTick();
-
             rawDist[virtIdx] = stats.numInstrExecuted.value();
         }
     }
@@ -1754,12 +1814,24 @@ Wavefront::freeRegisterFile()
          // TODO originally just VGPRs were cleared
          // -- any specific reason?
 
-    DPRINTF(GPUDisp, "Touches:\n");
-    for (int i = 0; i < touch_0.size(); i++) {
-        DPRINTF(GPUDisp, "v%d Start: %" PRId64 " (%" PRId64 ") | "
-            " End: %" PRId64 " (%" PRId64 ")\n",
-            i, touch_0[i], first_kiss[i],
-            touch_1[i], last_kiss[i]);
+    end_time = curTick();
+    if (wfId < 4 && wgId == 0) {
+        DPRINTF(GPUKernelInfo, "touches %d %d %d %d %d %lld %lld\n",
+            kernId, wgId, wfId, first_kiss.size(), first_kiss_lds.size(), start_time, end_time);
+        for (int i = 0; i < first_kiss.size(); i++) {
+            DPRINTF(GPUKernelInfo, "vgpr_touches %d %" PRId64 " %d"
+                " %" PRId64 " %d\n",
+                i,
+                first_kiss.at(i).first, first_kiss.at(i).second,
+                last_kiss.at(i).first, last_kiss.at(i).second);
+        }
+        for (int i = 0; i < first_kiss_lds.size(); i++) {
+            DPRINTF(GPUKernelInfo, "lds_touches %d %" PRId64 " %d"
+                " %" PRId64 " %d\n",
+                i,
+                first_kiss_lds.at(i).first, first_kiss_lds.at(i).second,
+                last_kiss_lds.at(i).first, last_kiss_lds.at(i).second);
+        }
     }
 }
 

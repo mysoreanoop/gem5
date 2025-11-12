@@ -144,7 +144,7 @@ class Wavefront : public SimObject
     void setStatus(status_e newStatus);
     status_e getStatus() { return status; }
     std::string statusToString(status_e status);
-    void resizeRegFiles(int num_vregs, int num_sregs);
+    void updateRegFileSize(int num_vregs, int num_sregs);
     bool isGmInstruction(GPUDynInstPtr ii);
     bool isLmInstruction(GPUDynInstPtr ii);
     bool isOldestInstWaitcnt();
@@ -176,6 +176,7 @@ class Wavefront : public SimObject
     void computeActualWgSz(HSAQueueEntry *task);
     // wavefront id within a workgroup
     uint32_t wfId;
+    bool lad;
     uint32_t maxDynWaveId;
     uint32_t dispatchId;
     // vector and scalar memory requests pending in memory system
@@ -256,10 +257,15 @@ class Wavefront : public SimObject
     // - counts are reset to 0 for each dynamic wavefront launched
     std::vector<int> vecReads;
 
-    std::vector<uint64_t> first_kiss;
-    std::vector<uint64_t> last_kiss;
-    std::vector<uint64_t> touch_0;
-    std::vector<uint64_t> touch_1;
+    // liveness record per VGPR index containing <timestamp,pc> of first/last accesses
+    std::vector<std::pair<Tick, Addr>> first_kiss;
+    std::vector<std::pair<Tick, Addr>> last_kiss;
+
+    // liveness record per LDS index containing <timestamp,pc> of first/last accesses
+    std::vector<std::pair<Tick, Addr>> first_kiss_lds;
+    std::vector<std::pair<Tick, Addr>> last_kiss_lds;
+
+    Tick start_time, end_time;
 
     void initRegState(HSAQueueEntry *task, int wgSizeInWorkItems);
 
@@ -356,6 +362,12 @@ class Wavefront : public SimObject
     Tick epilogue_time = 0;
     double bestWfOverlap = 0.0;
 
+    std::unordered_map<unsigned, unsigned> vgprTranslationTab;
+    bool setupTranslateTable();
+    unsigned vgprTranslate(unsigned v);
+    // pc_offset, int(type << X | delta)
+    std::unordered_map<int, int> pc_magicInsn;
+
   private:
     bool _atResourceBarrier;
     bool _atLdsBarrier;
@@ -401,6 +413,9 @@ class Wavefront : public SimObject
     std::unordered_map<std::string, Tick> regionMap;
 
   public:
+    // make private and add method
+    Addr start_pc;
+
     struct WavefrontStats : public statistics::Group
     {
         WavefrontStats(statistics::Group *parent);

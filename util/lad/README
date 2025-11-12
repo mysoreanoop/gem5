@@ -1,0 +1,4 @@
+lad.json contains a mapping of GPU kernel dispatch ID to 3 corresponding data structures:
+- VGPR translation map
+- PC offset to magic instruction encoding map (for lookahead dispatch)
+- KD modifiers for specifying initial resource requirements

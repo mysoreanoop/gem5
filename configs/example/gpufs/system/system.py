@@ -128,6 +128,8 @@ def makeGpuFSSystem(args):
         dispatcher=dispatcher,
         walker=cp_pt_walker,
         target_non_blit_kernel_id=target_kernel,
+        lad_annot_file=args.lad_annot_file,
+        lad=args.lookahead,
     )
     shader.dispatcher = dispatcher
     shader.gpu_cmd_proc = gpu_cmd_proc

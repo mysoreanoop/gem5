@@ -30,6 +30,8 @@
  */
 
 #include "arch/amdgpu/vega/insts/op_encodings.hh"
+#include "gpu-compute/wavefront.hh"
+#include "debug/GPUFetch.hh"
 
 #include <iomanip>
 
@@ -623,6 +625,20 @@ namespace VegaISA
     } // ~Inst_VOP2
 
     void
+    Inst_VOP2::translateLAD(Wavefront *wf)
+    {
+        // Note: There may be special cases for V_FMAAK / V_FMAMK instructions
+        // but those are not implemented at this time.
+        DPRINTF(GPUFetch, "LAD translate VOP2\n");
+
+        instData.VDST = (unsigned)wf->vgprTranslate(instData.VDST);
+        if (!isScalarReg(instData.SRC0)) {
+            instData.SRC0 = (unsigned)wf->vgprTranslate(instData.SRC0);
+        }
+        instData.VSRC1 = (unsigned)wf->vgprTranslate(instData.VSRC1);;
+    }
+
+    void
     Inst_VOP2::initOperandInfo()
     {
         int opNum = 0;
@@ -758,6 +774,17 @@ namespace VegaISA
     } // ~Inst_VOP1
 
     void
+    Inst_VOP1::translateLAD(Wavefront *wf)
+    {
+        DPRINTF(GPUFetch, "LAD translate VOP1\n");
+
+        instData.VDST = (unsigned)wf->vgprTranslate(instData.VDST);
+        if (!isScalarReg(instData.SRC0)) {
+            instData.SRC0 = (unsigned)wf->vgprTranslate(instData.SRC0);
+        }
+    }
+
+    void
     Inst_VOP1::initOperandInfo()
     {
         int opNum = 0;
@@ -865,6 +892,16 @@ namespace VegaISA
     } // ~Inst_VOPC
 
     void
+    Inst_VOPC::translateLAD(Wavefront *wf)
+    {
+        DPRINTF(GPUFetch, "LAD translate VOPC\n");
+        if (!isScalarReg(instData.SRC0)) {
+            instData.SRC0 = (unsigned)wf->vgprTranslate(instData.SRC0);
+        }
+        instData.VSRC1 = (unsigned)wf->vgprTranslate(instData.VSRC1);
+    }
+
+    void
     Inst_VOPC::initOperandInfo()
     {
         int opNum = 0;
@@ -967,6 +1004,24 @@ namespace VegaISA
     Inst_VOP3A::~Inst_VOP3A()
     {
     } // ~Inst_VOP3A
+
+    void
+    Inst_VOP3A::translateLAD(Wavefront *wf)
+    {
+        // Special cases for V_FMAC V_*REV should be fine as accumlation versions
+        // use vdst as src0 directly and the REV instructions are in "ISA Order"
+        DPRINTF(GPUFetch, "LAD translate VOP3A\n");
+        instData.VDST = (unsigned)wf->vgprTranslate(instData.VDST);
+        if (!isScalarReg(extData.SRC0)) {
+            extData.SRC0 = (unsigned)wf->vgprTranslate(extData.SRC0);
+        }
+        if (!isScalarReg(extData.SRC1)) {
+            extData.SRC1 = (unsigned)wf->vgprTranslate(extData.SRC1);
+        }
+        if (!isScalarReg(extData.SRC2)) {
+            extData.SRC2 = (unsigned)wf->vgprTranslate(extData.SRC2);
+        }
+    }
 
     void
     Inst_VOP3A::initOperandInfo()
@@ -1092,6 +1147,26 @@ namespace VegaISA
     {
     } // ~Inst_VOP3B
 
+
+    void
+    Inst_VOP3B::translateLAD(Wavefront *wf)
+    {
+        // For these instructions SDST is typically something like a carry out, so
+        // there is still a VDST. For instructions such as V_S_* it probably does
+        // not matter as VDST is unused.
+        DPRINTF(GPUFetch, "LAD translate VOP3B\n");
+        instData.VDST = (unsigned)wf->vgprTranslate(instData.VDST);
+        if (!isScalarReg(extData.SRC0)) {
+            extData.SRC0 = (unsigned)wf->vgprTranslate(extData.SRC0);
+        }
+        if (!isScalarReg(extData.SRC1)) {
+            extData.SRC1 = (unsigned)wf->vgprTranslate(extData.SRC1);
+        }
+        if (!isScalarReg(extData.SRC2)) {
+            extData.SRC2 = (unsigned)wf->vgprTranslate(extData.SRC2);
+        }
+    }
+
     void
     Inst_VOP3B::initOperandInfo()
     {
@@ -1198,6 +1273,22 @@ namespace VegaISA
     } // ~Inst_VOP3P
 
     void
+    Inst_VOP3P::translateLAD(Wavefront *wf)
+    {
+        DPRINTF(GPUFetch, "LAD translate VOP3P\n");
+        instData.VDST = (unsigned)wf->vgprTranslate(instData.VDST);
+        if (!isScalarReg(extData.SRC0)) {
+            extData.SRC0 = (unsigned)wf->vgprTranslate(extData.SRC0);
+        }
+        if (!isScalarReg(extData.SRC1)) {
+            extData.SRC1 = (unsigned)wf->vgprTranslate(extData.SRC1);
+        }
+        if (!isScalarReg(extData.SRC2)) {
+            extData.SRC2 = (unsigned)wf->vgprTranslate(extData.SRC2);
+        }
+    }
+
+    void
     Inst_VOP3P::initOperandInfo()
     {
         // Also takes care of bitfield addr issue
@@ -1276,6 +1367,23 @@ namespace VegaISA
     } // ~Inst_VOP3P_MAI
 
     void
+    Inst_VOP3P_MAI::translateLAD(Wavefront *wf)
+    {
+        DPRINTF(GPUFetch, "LAD translate VOP3P\n");
+        instData.VDST = (unsigned)wf->vgprTranslate(instData.VDST);
+        if (!isScalarReg(extData.SRC0)) {
+            extData.SRC0 = (unsigned)wf->vgprTranslate(extData.SRC0);
+        }
+        if (!isScalarReg(extData.SRC1)) {
+            extData.SRC1 = (unsigned)wf->vgprTranslate(extData.SRC1);
+        }
+        if (!isScalarReg(extData.SRC2)) {
+            extData.SRC2 = (unsigned)wf->vgprTranslate(extData.SRC2);
+        }
+    }
+
+
+    void
     Inst_VOP3P_MAI::initOperandInfo()
     {
         // Also takes care of bitfield addr issue
@@ -1351,6 +1459,16 @@ namespace VegaISA
     Inst_DS::~Inst_DS()
     {
     } // ~Inst_DS
+
+    void
+    Inst_DS::translateLAD(Wavefront *wf)
+    {
+        DPRINTF(GPUFetch, "LAD translate DS\n");
+        extData.VDST = (unsigned)wf->vgprTranslate(extData.VDST);
+        extData.ADDR = (unsigned)wf->vgprTranslate(extData.ADDR);
+        extData.DATA0 = (unsigned)wf->vgprTranslate(extData.DATA0);
+        extData.DATA1 = (unsigned)wf->vgprTranslate(extData.DATA1);
+    }
 
     void
     Inst_DS::initOperandInfo()
@@ -1435,6 +1553,14 @@ namespace VegaISA
     Inst_MUBUF::~Inst_MUBUF()
     {
     } // ~Inst_MUBUF
+
+    void
+    Inst_MUBUF::translateLAD(Wavefront *wf)
+    {
+        DPRINTF(GPUFetch, "LAD translate MUBUF\n");
+        extData.VDATA = (unsigned)wf->vgprTranslate(extData.VDATA);
+        // terData.VADDR = (unsigned)wf->vgprTranslate(terData.VADDR); Not Implemented
+    }
 
     void
     Inst_MUBUF::initOperandInfo()
@@ -1726,6 +1852,15 @@ namespace VegaISA
     Inst_FLAT::~Inst_FLAT()
     {
     } // ~Inst_FLAT
+
+    void
+    Inst_FLAT::translateLAD(Wavefront *wf)
+    {
+        DPRINTF(GPUFetch, "LAD translate FLAT\n"); 
+        extData.VDST = (unsigned)wf->vgprTranslate(extData.VDST);
+        // terData.VADDR = (unsigned)wf->vgprTranslate(terData.VADDR); // Not implemented
+        // extData.VSRC = (unsigned)wf->vgprTranslate(extData.VSRC); // Not implemented
+    }
 
     void
     Inst_FLAT::initOperandInfo()

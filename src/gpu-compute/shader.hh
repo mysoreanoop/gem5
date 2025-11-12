@@ -139,6 +139,7 @@ class Shader : public ClockedObject
     typedef ShaderParams Params;
     enum hsail_mode_e {SIMT,VECTOR_SCALAR};
 
+    bool lad;
     GPUDispatcher &dispatcher();
     void sampleLoad(const Tick accessTime);
     void sampleStore(const Tick accessTime);

@@ -52,7 +52,7 @@ class PoolManager : public SimObject
     virtual std::string printRegion() = 0;
     virtual uint32_t regionSize(std::pair<uint32_t,uint32_t> &region) = 0;
     virtual bool canAllocate(uint32_t numRegions, uint32_t size) = 0;
-
+    virtual int getTotAllocableWfsForRegsUsed(uint32_t size) = 0;
     virtual uint32_t allocateRegion(const uint32_t size,
                                     uint32_t *reserved) = 0;
 

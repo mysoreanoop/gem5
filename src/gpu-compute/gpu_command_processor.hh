@@ -57,6 +57,7 @@
 #include "gpu-compute/dispatcher.hh"
 #include "gpu-compute/gpu_compute_driver.hh"
 #include "gpu-compute/hsa_queue_entry.hh"
+#include "gpu-compute/lad_annotation_parser.hh"
 #include "params/GPUCommandProcessor.hh"
 #include "sim/full_system.hh"
 
@@ -328,6 +329,11 @@ class GPUCommandProcessor : public DmaVirtDevice
 
     void readPreload(AMDKernelCode *akc, HSAQueueEntry *task);
     void initPreload(AMDKernelCode *akc, HSAQueueEntry *task);
+
+    void modifyHSATask(HSAQueueEntry *task);
+  public:
+    LADAnnotationParser lad_annotation_parser;
+    bool lad;
 };
 
 } // namespace gem5

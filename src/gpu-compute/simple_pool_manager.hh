@@ -55,6 +55,7 @@ class SimplePoolManager : public PoolManager
     uint32_t minAllocatedElements(uint32_t size);
     std::string printRegion();
     bool canAllocate(uint32_t numRegions, uint32_t size);
+    int getTotAllocableWfsForRegsUsed(uint32_t size) override;
     uint32_t allocateRegion(const uint32_t size, uint32_t *reservedPoolSize);
     void freeRegion(uint32_t firstIdx, uint32_t lastIdx);
     uint32_t regionSize(std::pair<uint32_t,uint32_t> &region);

@@ -40,6 +40,7 @@
 #include "debug/GPUInitAbi.hh"
 #include "debug/GPUKernelInfo.hh"
 #include "dev/amdgpu/amdgpu_device.hh"
+#include "gem5/json.hpp"
 #include "gpu-compute/compute_unit.hh"
 #include "gpu-compute/dispatcher.hh"
 #include "gpu-compute/shader.hh"
@@ -60,11 +61,17 @@ namespace gem5
 GPUCommandProcessor::GPUCommandProcessor(const Params &p)
     : DmaVirtDevice(p), dispatcher(*p.dispatcher), _driver(nullptr),
       walker(p.walker), hsaPP(p.hsapp),
-      target_non_blit_kernel_id(p.target_non_blit_kernel_id)
+      target_non_blit_kernel_id(p.target_non_blit_kernel_id),
+      lad_annotation_parser(p.lad_annot_file), lad(p.lad)
 {
     assert(hsaPP);
     hsaPP->setDevice(this);
     dispatcher.setCommandProcessor(this);
+    if (lad) {
+        if (!lad_annotation_parser.init())
+            panic ("LAD json file not valid\n");
+        else DPRINTF(GPUCommandProc, "LAD file recognized and set\n");
+    }
 }
 
 HSAPacketProcessor&
@@ -301,6 +308,20 @@ GPUCommandProcessor::submitDispatchPkt(void *raw_pkt, uint32_t queue_id,
 }
 
 void
+GPUCommandProcessor::modifyHSATask(HSAQueueEntry *task) {
+    int dispId = task->dispatchId();
+    if (lad_annotation_parser.isDispLad(dispId)) {
+        DPRINTF(GPUCommandProc, "Dispatch %d is LAD; modifying \".kd\"\n", dispId);
+        task->numEarlyVectorRegs(lad_annotation_parser.get_kd_modifier(dispId, "numEarlyVectorRegs").value_or(0));
+        task->numEarlyScalarRegs(lad_annotation_parser.get_kd_modifier(dispId, "numEarlyScalarRegs").value_or(0));
+        task->pctEarlyLDSBytes(lad_annotation_parser.get_kd_modifier(dispId, "pctEarlyLDSBytes").value_or(0));
+        task->makeLookaheadDisp();
+    } else
+        DPRINTF(GPUCommandProc, "Dispatch %d is *not* LAD\n", dispId);
+
+}
+
+void
 GPUCommandProcessor::dispatchKernelObject(AMDKernelCode *akc, void *raw_pkt,
                                         uint32_t queue_id, Addr host_pkt_addr)
 {
@@ -358,6 +379,9 @@ GPUCommandProcessor::dispatchKernelObject(AMDKernelCode *akc, void *raw_pkt,
     // The driver expects the start time to be in ns
     Tick start_ts = curTick() / sim_clock::as_int::ns;
     dispatchStartTime.insert({disp_pkt->completion_signal, start_ts});
+
+    // optional correction for lookahead dispatch via lad_annotation_parser
+    if (lad) modifyHSATask(task);
 
     // Potentially skip a non-blit kernel
     if (!is_blit_kernel && (non_blit_kernel_id < target_non_blit_kernel_id)) {

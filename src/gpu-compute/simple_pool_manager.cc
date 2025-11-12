@@ -65,7 +65,14 @@ SimplePoolManager::printRegion()
 bool
 SimplePoolManager::canAllocate(uint32_t numRegions, uint32_t size)
 {
-    return _reservedGroups == 0;
+    return _reservedGroups == 0; // size check during allocate for perf
+}
+
+
+int
+SimplePoolManager::getTotAllocableWfsForRegsUsed(uint32_t size)
+{
+    return (int)(_reservedGroups == 0);
 }
 
 void

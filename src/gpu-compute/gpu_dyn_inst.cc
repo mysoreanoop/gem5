@@ -415,6 +415,22 @@ GPUDynInst::isResUpdate() const
 }
 
 bool
+GPUDynInst::isInternalInst() const
+{
+    return _staticInst->isInternalInst();
+}
+
+void
+GPUDynInst::ladParam(ComputeUnit::RTYPE resource, uint32_t delta) {
+    _staticInst->ladParam(resource, delta);
+}
+
+std::pair<ComputeUnit::RTYPE, uint32_t>
+GPUDynInst::ladParam() {
+    return _staticInst->ladParam();
+}
+
+bool
 GPUDynInst::isResBarrier() const
 {
     return _staticInst->isResBarrier();
