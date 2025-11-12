@@ -109,14 +109,14 @@ namespace VegaISA
         dis_stream << opSelectorToRegSym(instData.SDST) << ", ";
 
         if (instData.SSRC0 == REG_SRC_LITERAL) {
-            dis_stream << "0x" << std::hex << std::setfill('0') << std::setw(8)
+            dis_stream << "0x" << std::hex
                        << _srcLiteral << ", ";
         } else {
             dis_stream << opSelectorToRegSym(instData.SSRC0) << ", ";
         }
 
         if (instData.SSRC1 == REG_SRC_LITERAL) {
-            dis_stream << "0x" << std::hex << std::setfill('0') << std::setw(8)
+            dis_stream << "0x" << std::hex
                        << _srcLiteral;
         } else {
             dis_stream << opSelectorToRegSym(instData.SSRC1);
@@ -208,8 +208,8 @@ namespace VegaISA
         // S_SETREG_IMM32_B32 is a 64-bit instruction, using a
         // 32-bit literal constant
         if (instData.OP == 0x14) {
-            dis_stream << "0x" << std::hex << std::setfill('0')
-                    << std::setw(8) << extData.imm_u32 << ", ";
+            dis_stream << "0x" << std::hex
+                    << extData.imm_u32 << ", ";
         } else {
             dis_stream << opSelectorToRegSym(instData.SDST) << ", ";
         }
@@ -300,7 +300,7 @@ namespace VegaISA
         dis_stream << opSelectorToRegSym(instData.SDST) << ", ";
 
         if (instData.SSRC0 == REG_SRC_LITERAL) {
-            dis_stream << "0x" << std::hex << std::setfill('0') << std::setw(8)
+            dis_stream << "0x" << std::hex
                        << extData.imm_u32;
         } else {
             dis_stream << opSelectorToRegSym(instData.SSRC0);
@@ -374,14 +374,14 @@ namespace VegaISA
         dis_stream << _opcode << " ";
 
         if (instData.SSRC0 == REG_SRC_LITERAL) {
-            dis_stream << "0x" << std::hex << std::setfill('0') << std::setw(8)
+            dis_stream << "0x" << std::hex
                        << extData.imm_u32;
         } else {
             dis_stream << opSelectorToRegSym(instData.SSRC0) << ", ";
         }
 
         if (instData.SSRC1 == REG_SRC_LITERAL) {
-            dis_stream << "0x" << std::hex << std::setfill('0') << std::setw(8)
+            dis_stream << "0x" << std::hex
                        << extData.imm_u32;
         } else {
             dis_stream << opSelectorToRegSym(instData.SSRC1);
@@ -721,7 +721,7 @@ namespace VegaISA
         if ((instData.SRC0 == REG_SRC_LITERAL) ||
             (instData.SRC0 == REG_SRC_DPP) ||
             (instData.SRC0 == REG_SRC_SWDA)) {
-            dis_stream << "0x" << std::hex << std::setfill('0') << std::setw(8)
+            dis_stream << "0x" << std::hex
                        << _srcLiteral << ", ";
         } else {
             dis_stream << opSelectorToRegSym(instData.SRC0) << ", ";
@@ -734,7 +734,7 @@ namespace VegaISA
         // the opcodes',
         if (instData.OP == 0x17 || instData.OP == 0x18 || instData.OP == 0x24
             || instData.OP == 0x25) {
-            dis_stream << "0x" << std::hex << std::setfill('0') << std::setw(8)
+            dis_stream << "0x" << std::hex
                        << extData.imm_u32 << ", ";
         }
 
@@ -855,7 +855,7 @@ namespace VegaISA
         if ((instData.SRC0 == REG_SRC_LITERAL) ||
             (instData.SRC0 == REG_SRC_DPP) ||
             (instData.SRC0 == REG_SRC_SWDA)) {
-            dis_stream << "0x" << std::hex << std::setfill('0') << std::setw(8)
+            dis_stream << "0x" << std::hex
                        << _srcLiteral;
         } else {
             dis_stream << opSelectorToRegSym(instData.SRC0);
@@ -959,7 +959,7 @@ namespace VegaISA
         if ((instData.SRC0 == REG_SRC_LITERAL) ||
             (instData.SRC0 == REG_SRC_DPP) ||
             (instData.SRC0 == REG_SRC_SWDA)) {
-            dis_stream << "0x" << std::hex << std::setfill('0') << std::setw(8)
+            dis_stream << "0x" << std::hex
                        << _srcLiteral << ", ";
         } else {
             dis_stream << opSelectorToRegSym(instData.SRC0) << ", ";
@@ -1220,6 +1220,9 @@ namespace VegaISA
         dis_stream << _opcode << " ";
 
         dis_stream << "v" << instData.VDST << ", ";
+        int ndw = getOperandSize(getNumOperands() - 2) / 4;
+        dis_stream << opSelectorToRegSym(instData.VDST, ndw)
+                    << ", ";
 
         if (numDstRegOperands() == 2) {
             if (getOperandSize(getNumOperands() - 1) > 4) {
@@ -1506,17 +1509,20 @@ namespace VegaISA
         dis_stream << _opcode << " ";
 
         if (numDstRegOperands()) {
-            int ndw = getOperandSize(getNumOperands() - 1) / 4;
-            dis_stream << opSelectorToRegSym(extData.VDST, ndw) << ", ";
+            int ndw = getOperandSize(getNumOperands() - 2) / 4;
+            dis_stream << opSelectorToRegSym(extData.VDST + 0x100, ndw)
+                       << ", ";
         }
 
         dis_stream << "v" << extData.ADDR;
 
-        if (numSrcRegOperands() > 1)
-            dis_stream << ", v" << extData.DATA0;
-
+        if (numSrcRegOperands() > 1) {
+            int ndw = getOperandSize(getNumOperands() - 1) / 4;
+            dis_stream << opSelectorToRegSym(extData.DATA0 + 0x100, ndw)
+                       << ", ";
+        }
         if (numSrcRegOperands() > 2)
-            dis_stream << ", v" << extData.DATA1;
+            dis_stream << "v" << extData.DATA1 << ", ";
 
         uint16_t offset = 0;
 
@@ -1624,7 +1630,12 @@ namespace VegaISA
         int srsrc_val = extData.SRSRC * 4;
         std::stringstream dis_stream;
         dis_stream << _opcode << " ";
-        dis_stream << "v" << extData.VDATA << ", v" << extData.VADDR << ", ";
+        if (numDstRegOperands()) {
+            int ndw = getOperandSize(getNumOperands() - 1) / 4;
+            dis_stream << opSelectorToRegSym(extData.VDATA + 0x100, ndw)
+                       << ", ";
+        }
+        dis_stream << "v" << extData.VADDR << ", ";
         dis_stream << "s[" << srsrc_val << ":"
                    << srsrc_val + 3 << "], ";
         dis_stream << "s" << extData.SOFFSET;
@@ -1858,7 +1869,7 @@ namespace VegaISA
     void
     Inst_FLAT::translateLAD(Wavefront *wf)
     {
-        DPRINTF(GPUFetch, "LAD translate FLAT\n"); 
+        DPRINTF(GPUFetch, "LAD translate FLAT\n");
         extData.VDST = (unsigned)wf->vgprTranslate(extData.VDST);
         // terData.VADDR = (unsigned)wf->vgprTranslate(terData.VADDR); // Not implemented
         // extData.VSRC = (unsigned)wf->vgprTranslate(extData.VSRC); // Not implemented
