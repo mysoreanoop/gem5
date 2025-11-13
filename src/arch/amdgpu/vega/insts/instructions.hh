@@ -29818,9 +29818,9 @@ namespace VegaISA
               case 1: //src_1
                 return 4;
               case 2: //src_2
-                return 4;
+                return 8;
               case 3: //vdst
-                return 4;
+                return 8;
               case 4: //carryout
                 return 8;
               default:
@@ -37425,7 +37425,7 @@ namespace VegaISA
         getOperandSize(int opIdx) override
         {
             switch (opIdx) {
-              case 0: //vgpr_s
+              case 0: //vgpr_d
                 return 16;
               case 1: //vgpr_a
                 return 8;

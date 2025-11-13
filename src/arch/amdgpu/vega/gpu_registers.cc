@@ -129,8 +129,7 @@ namespace VegaISA
             reg_sym = "1 / (2*pi)";
             break;
           default:
-            std::cerr << "VEGA ISA instruction has unknown register index " << idx << std::endl;
-            reg_sym = std::to_string(idx);
+            fatal("VEGA ISA instruction has unknown register index: %d\n", idx);
             break;
         }
 

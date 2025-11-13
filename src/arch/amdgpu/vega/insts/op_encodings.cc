@@ -850,7 +850,7 @@ namespace VegaISA
     {
         std::stringstream dis_stream;
         dis_stream << _opcode << " ";
-        dis_stream << "v" << instData.VDST << ", ";
+        dis_stream << opSelectorToRegSym(instData.VDST + 0x100) << ", ";
 
         if ((instData.SRC0 == REG_SRC_LITERAL) ||
             (instData.SRC0 == REG_SRC_DPP) ||
@@ -1219,8 +1219,7 @@ namespace VegaISA
         std::stringstream dis_stream;
         dis_stream << _opcode << " ";
 
-        dis_stream << "v" << instData.VDST << ", ";
-        int ndw = getOperandSize(getNumOperands() - 2) / 4;
+        int ndw = getOperandSize(getNumOperands() - numDstRegOperands()) / 4;
         dis_stream << opSelectorToRegSym(instData.VDST, ndw)
                     << ", ";
 
@@ -1247,11 +1246,15 @@ namespace VegaISA
         }
 
         if (numSrcRegOperands() == 3) {
+            int num_regs = getOperandSize(numSrcRegOperands() - 1) / 4;
+
             if (extData.NEG & 0x4) {
-                dis_stream << ", -" << opSelectorToRegSym(extData.SRC2);
+                dis_stream << ", -";
             } else {
-                dis_stream << ", " << opSelectorToRegSym(extData.SRC2);
+                dis_stream << ", ";
             }
+            dis_stream << opSelectorToRegSym(extData.SRC2, num_regs)
+                    << ", ";
         }
 
         if (readsVCC())
@@ -1509,20 +1512,20 @@ namespace VegaISA
         dis_stream << _opcode << " ";
 
         if (numDstRegOperands()) {
-            int ndw = getOperandSize(getNumOperands() - 2) / 4;
+            int ndw = getOperandSize(getNumOperands() - 1) / 4;
             dis_stream << opSelectorToRegSym(extData.VDST + 0x100, ndw)
                        << ", ";
         }
 
-        dis_stream << "v" << extData.ADDR;
+        int ndw = getOperandSize(0) / 4;
+        dis_stream << opSelectorToRegSym(extData.ADDR + 0x100, ndw);
 
         if (numSrcRegOperands() > 1) {
-            int ndw = getOperandSize(getNumOperands() - 1) / 4;
-            dis_stream << opSelectorToRegSym(extData.DATA0 + 0x100, ndw)
-                       << ", ";
+            int ndw = getOperandSize(1) / 4;
+            dis_stream << ", " << opSelectorToRegSym(extData.DATA0 + 0x100, ndw);
         }
         if (numSrcRegOperands() > 2)
-            dis_stream << "v" << extData.DATA1 << ", ";
+            dis_stream << ", v" << extData.DATA1;
 
         uint16_t offset = 0;
 
@@ -1630,11 +1633,9 @@ namespace VegaISA
         int srsrc_val = extData.SRSRC * 4;
         std::stringstream dis_stream;
         dis_stream << _opcode << " ";
-        if (numDstRegOperands()) {
-            int ndw = getOperandSize(getNumOperands() - 1) / 4;
-            dis_stream << opSelectorToRegSym(extData.VDATA + 0x100, ndw)
-                       << ", ";
-        }
+        int ndw = getOperandSize(numDstRegOperands() ? getNumOperands()-1 : 0) / 4;
+        dis_stream << opSelectorToRegSym(extData.VDATA + 0x100, ndw)
+                   << ", ";
         dis_stream << "v" << extData.VADDR << ", ";
         dis_stream << "s[" << srsrc_val << ":"
                    << srsrc_val + 3 << "], ";
