@@ -1833,6 +1833,10 @@ Wavefront::freeRegisterFile()
                 last_kiss_lds.at(i).first, last_kiss_lds.at(i).second);
         }
     }
+    first_kiss.clear();
+    first_kiss_lds.clear();
+    last_kiss_lds.clear();
+    last_kiss.clear();
 }
 
 void

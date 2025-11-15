@@ -1693,7 +1693,7 @@ namespace VegaISA
         unsigned int   OFFSET1 : 8;
         unsigned int       GDS : 1;
         unsigned int        OP : 8;
-        unsigned int    pad_25 : 1;
+        unsigned int       ACC : 1;
         unsigned int  ENCODING : 6;
     };
 
@@ -1736,7 +1736,7 @@ namespace VegaISA
         unsigned int      ADDR : 8;
         unsigned int      DATA : 8;
         unsigned int     SADDR : 7;
-        unsigned int        NV : 1;
+        unsigned int       ACC : 1;
         unsigned int      VDST : 8;
     };
 
@@ -1785,7 +1785,7 @@ namespace VegaISA
         unsigned int     SRSRC : 5;
         unsigned int    pad_21 : 1;
         unsigned int       SLC : 1;
-        unsigned int       TFE : 1;
+        unsigned int       ACC : 1;
         unsigned int   SOFFSET : 8;
     };
 
@@ -1807,7 +1807,7 @@ namespace VegaISA
         unsigned int     VDATA : 8;
         unsigned int     SRSRC : 5;
         unsigned int pad_21_22 : 2;
-        unsigned int       TFE : 1;
+        unsigned int       ACC : 1;
         unsigned int   SOFFSET : 8;
     };
 

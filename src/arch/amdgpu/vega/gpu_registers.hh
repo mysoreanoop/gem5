@@ -218,7 +218,7 @@ namespace VegaISA
         uint32_t RESERVED_1 : 4;
     };
 
-    std::string opSelectorToRegSym(int opIdx, int numRegs=0);
+    std::string opSelectorToRegSym(int opIdx, int numRegs=0, bool a=false);
     int opSelectorToRegIdx(int opIdx, int numScalarRegs);
     bool isPosConstVal(int opIdx);
     bool isNegConstVal(int opIdx);

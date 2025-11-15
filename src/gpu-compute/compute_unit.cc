@@ -812,6 +812,7 @@ ComputeUnit::hasDispResources(HSAQueueEntry *task, int &num_wfs_in_wg,
             if (numEarlyMappedWfs >= numWfs) {
                 numMappedWfs = numEarlyMappedWfs;
                 earlyAllocVGPR = true;
+                DPRINTF(GPUDisp, "LAD launch recommended\n");
             } else {
                 DPRINTF(GPUDisp, "CU[%d] cannot map WG\n", cu_id);
             }

@@ -84,7 +84,9 @@ class GPUStaticInst : public GPUStaticInstFlags
     virtual void generateDisassembly() = 0;
     const std::string& disassemble();
 
-    virtual void translateLAD(Wavefront *wf) { DPRINTF(GPUFetch, "Not translating for: %s", disassemble()); }
+    virtual void translateLAD(Wavefront *wf) {
+        DPRINTF(GPUFetch, "Not translating for: %s\n", disassemble());
+    }
     virtual int getNumOperands() = 0;
     virtual bool isFlatScratchRegister(int opIdx) = 0;
     virtual bool isExecMaskRegister(int opIdx) = 0;

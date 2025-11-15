@@ -35,6 +35,7 @@
 #include "arch/amdgpu/common/tlb.hh"
 #include "base/bitfield.hh"
 #include "debug/GPUFetch.hh"
+#include "debug/GPUKernelInfo.hh"
 #include "debug/GPUPort.hh"
 #include "debug/GPUTLB.hh"
 #include "gpu-compute/compute_unit.hh"
@@ -590,15 +591,15 @@ FetchUnit::FetchBufDesc::decodeInsts()
                 = reinterpret_cast<TheGpuISA::MachInst>(readPtr);
             GPUStaticInst *gpu_static_inst = _decoder->decode(mach_inst);
 
-            Addr curr_pc_offset;
+            int curr_pc_offset;
 
             auto last_buf_pc = bufferedPCs.rbegin();
-            curr_pc_offset = last_buf_pc->first + readPtr -
-                        last_buf_pc->second - wavefront->start_pc;
-            if (wavefront->wgId == 0 && wavefront->wfId == 0 && wavefront->kernId == 2)
-                DPRINTF(GPUFetch, "PC: %lld | Insn: %s | kernId %d\n",
+            curr_pc_offset = (int)(last_buf_pc->first + readPtr -
+                        last_buf_pc->second - wavefront->start_pc);
+            if (wavefront->wgId == 0 && wavefront->wfId == 0) {
+                DPRINTF(GPUKernelInfo, "PC: %d | Insn: %s | kernId %d\n",
                     curr_pc_offset, gpu_static_inst->disassemble(), wavefront->kernId);
-
+            }
 
             readPtr += gpu_static_inst->instSize();
 
@@ -622,10 +623,10 @@ FetchUnit::FetchBufDesc::decodeInsts()
                         case 0xf6: // VGPR_TERMINAL
                         case 0xf7: // LDS_TERMINAL
                             flag = GPUStaticInstFlags::Flags::ResUpdate;
-                            return;
+                            break;
                         case 0xf8: // VGPR_BARRIER
                             flag = GPUStaticInstFlags::Flags::ResBarrier;
-                            return;
+                            break;
                         case 0xf9: // LDS_BARRIER
                             flag = GPUStaticInstFlags::Flags::LdsBarrier;
                             break;
@@ -710,10 +711,10 @@ FetchUnit::FetchBufDesc::decodeSplitInst()
                 case 0xf6: // VGPR_TERMINAL
                 case 0xf7: // LDS_TERMINAL
                     flag = GPUStaticInstFlags::Flags::ResUpdate;
-                    return;
+                    break;
                 case 0xf8: // VGPR_BARRIER
                     flag = GPUStaticInstFlags::Flags::ResBarrier;
-                    return;
+                    break;
                 case 0xf9: // LDS_BARRIER
                     flag = GPUStaticInstFlags::Flags::LdsBarrier;
                     break;
@@ -724,10 +725,14 @@ FetchUnit::FetchBufDesc::decodeSplitInst()
 
             gpu_static_inst->setFlag(GPUStaticInst::Flags::InternalInst);
             gpu_static_inst->setFlag(flag);
-            ComputeUnit::RTYPE resource = static_cast<ComputeUnit::RTYPE>(wavefront->pc_magicInsn[curr_pc_offset] & 0xff);
+            ComputeUnit::RTYPE resource =
+                static_cast<ComputeUnit::RTYPE>
+                    (wavefront->pc_magicInsn[curr_pc_offset] & 0xff);
             uint32_t delta = (wavefront->pc_magicInsn[curr_pc_offset] & 0xff00) >> 8;
             gpu_static_inst->ladParam(resource, delta);
-            DPRINTF(GPUFetch, "Set LAD flag: 0x%x, 0x%x\n", wavefront->pc_magicInsn[curr_pc_offset] >> 8, wavefront->pc_magicInsn[curr_pc_offset] & 0xff);
+            DPRINTF(GPUFetch, "Set LAD flag: 0x%x, 0x%x\n",
+                wavefront->pc_magicInsn[curr_pc_offset] >> 8,
+                wavefront->pc_magicInsn[curr_pc_offset] & 0xff);
         }
     }
 

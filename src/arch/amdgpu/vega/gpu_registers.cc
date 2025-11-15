@@ -37,7 +37,7 @@ namespace gem5
 namespace VegaISA
 {
     std::string
-    opSelectorToRegSym(int idx, int numRegs)
+    opSelectorToRegSym(int idx, int numRegs, bool a /* default false */)
     {
         std::string reg_sym;
 
@@ -51,10 +51,11 @@ namespace VegaISA
             return reg_sym;
         } else if (idx >= REG_VGPR_MIN && idx <= REG_VGPR_MAX) {
             if (numRegs > 1)
-                reg_sym = "v[" + std::to_string(idx - REG_VGPR_MIN) + ":" +
-                    std::to_string(idx - REG_VGPR_MIN + numRegs - 1) + "]";
+                reg_sym = (a ? "a[" : "v[") + std::to_string(idx -
+                            REG_VGPR_MIN) + ":" + std::to_string(idx -
+                            REG_VGPR_MIN + numRegs - 1) + "]";
             else
-                reg_sym = "v" + std::to_string(idx - REG_VGPR_MIN);
+                reg_sym = (a ? "a" : "v")  + std::to_string(idx - REG_VGPR_MIN);
             return reg_sym;
         } else if (idx >= REG_INT_CONST_POS_MIN &&
                    idx <= REG_INT_CONST_POS_MAX) {
