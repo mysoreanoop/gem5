@@ -686,7 +686,10 @@ namespace VegaISA
         void translateLAD(Wavefront *wf) override;
         void initOperandInfo() override;
 
-      protected:
+        bool destAcc;
+        bool srcAcc;
+
+        protected:
         // first instruction DWORD
         InFmt_VOP3P instData;
         // second instruction DWORD
@@ -1085,7 +1088,18 @@ namespace VegaISA
             // exec_mask set and are not out of bounds.
             VectorMask old_exec_mask = gpuDynInst->exec_mask;
             gpuDynInst->exec_mask &= ~oobMask;
-            initMemReqHelper<T, 1>(gpuDynInst, MemCmd::ReadReq);
+            if (gpuDynInst->executedAs() == enums::SC_GROUP) {
+                Wavefront *wf = gpuDynInst->wavefront();
+                for (int lane = 0; lane < NumVecElemPerVecReg; ++lane) {
+                    if (gpuDynInst->exec_mask[lane]) {
+                        Addr vaddr = gpuDynInst->addr[lane];
+                        (reinterpret_cast<T *>(gpuDynInst->d_data))[lane] =
+                            wf->ldsChunk->read<T>(vaddr);
+                    }
+                }
+            } else {
+                initMemReqHelper<T, 1>(gpuDynInst, MemCmd::ReadReq);
+            }
             gpuDynInst->exec_mask = old_exec_mask;
         }
 
@@ -1099,7 +1113,22 @@ namespace VegaISA
             // exec_mask set and are not out of bounds.
             VectorMask old_exec_mask = gpuDynInst->exec_mask;
             gpuDynInst->exec_mask &= ~oobMask;
-            initMemReqHelper<VecElemU32, N>(gpuDynInst, MemCmd::ReadReq);
+            if (gpuDynInst->executedAs() == enums::SC_GROUP) {
+                Wavefront *wf = gpuDynInst->wavefront();
+                for (int lane = 0; lane < NumVecElemPerVecReg; ++lane) {
+                    if (gpuDynInst->exec_mask[lane]) {
+                        Addr vaddr = gpuDynInst->addr[lane];
+                        for (int i = 0; i < N; ++i) {
+                            (reinterpret_cast<VecElemU32 *>(
+                                gpuDynInst->d_data))[lane * N + i] =
+                                wf->ldsChunk->read<VecElemU32>(
+                                    vaddr + i * sizeof(VecElemU32));
+                        }
+                    }
+                }
+            } else {
+                initMemReqHelper<VecElemU32, N>(gpuDynInst, MemCmd::ReadReq);
+            }
             gpuDynInst->exec_mask = old_exec_mask;
         }
 
@@ -1112,7 +1141,19 @@ namespace VegaISA
             // exec_mask set and are not out of bounds.
             VectorMask old_exec_mask = gpuDynInst->exec_mask;
             gpuDynInst->exec_mask &= ~oobMask;
-            initMemReqHelper<T, 1>(gpuDynInst, MemCmd::WriteReq);
+            if (gpuDynInst->executedAs() == enums::SC_GROUP) {
+                Wavefront *wf = gpuDynInst->wavefront();
+                for (int lane = 0; lane < NumVecElemPerVecReg; ++lane) {
+                    if (gpuDynInst->exec_mask[lane]) {
+                        Addr vaddr = gpuDynInst->addr[lane];
+                        wf->ldsChunk->write<T>(
+                            vaddr,
+                            (reinterpret_cast<T *>(gpuDynInst->d_data))[lane]);
+                    }
+                }
+            } else {
+                initMemReqHelper<T, 1>(gpuDynInst, MemCmd::WriteReq);
+            }
             gpuDynInst->exec_mask = old_exec_mask;
         }
 
@@ -1125,7 +1166,22 @@ namespace VegaISA
             // exec_mask set and are not out of bounds.
             VectorMask old_exec_mask = gpuDynInst->exec_mask;
             gpuDynInst->exec_mask &= ~oobMask;
-            initMemReqHelper<VecElemU32, N>(gpuDynInst, MemCmd::WriteReq);
+            if (gpuDynInst->executedAs() == enums::SC_GROUP) {
+                Wavefront *wf = gpuDynInst->wavefront();
+                for (int lane = 0; lane < NumVecElemPerVecReg; ++lane) {
+                    if (gpuDynInst->exec_mask[lane]) {
+                        Addr vaddr = gpuDynInst->addr[lane];
+                        for (int i = 0; i < N; ++i) {
+                            wf->ldsChunk->write<VecElemU32>(
+                                vaddr + i * sizeof(VecElemU32),
+                                (reinterpret_cast<VecElemU32 *>(
+                                    gpuDynInst->d_data))[lane * N + i]);
+                        }
+                    }
+                }
+            } else {
+                initMemReqHelper<VecElemU32, N>(gpuDynInst, MemCmd::WriteReq);
+            }
             gpuDynInst->exec_mask = old_exec_mask;
         }
 
@@ -1138,7 +1194,26 @@ namespace VegaISA
             // exec_mask set and are not out of bounds.
             VectorMask old_exec_mask = gpuDynInst->exec_mask;
             gpuDynInst->exec_mask &= ~oobMask;
-            initMemReqHelper<T, 1>(gpuDynInst, MemCmd::SwapReq, true);
+            if (gpuDynInst->executedAs() == enums::SC_GROUP) {
+                Wavefront *wf = gpuDynInst->wavefront();
+                for (int lane = 0; lane < NumVecElemPerVecReg; ++lane) {
+                    if (gpuDynInst->exec_mask[lane]) {
+                        Addr vaddr = gpuDynInst->addr[lane];
+                        auto amo_op = gpuDynInst->makeAtomicOpFunctor<T>(
+                            &(reinterpret_cast<T *>(gpuDynInst->a_data))[lane],
+                            &(reinterpret_cast<T *>(
+                                gpuDynInst->x_data))[lane]);
+
+                        T tmp = wf->ldsChunk->read<T>(vaddr);
+                        (*amo_op)(reinterpret_cast<uint8_t *>(&tmp));
+                        wf->ldsChunk->write<T>(vaddr, tmp);
+                        (reinterpret_cast<T *>(gpuDynInst->d_data))[lane] =
+                            tmp;
+                    }
+                }
+            } else {
+                initMemReqHelper<T, 1>(gpuDynInst, MemCmd::SwapReq, true);
+            }
             gpuDynInst->exec_mask = old_exec_mask;
         }
 
@@ -1155,6 +1230,41 @@ namespace VegaISA
             gpuDynInst->setRequestFlags(req);
             gpuDynInst->computeUnit()->
                 injectGlobalMemFence(gpuDynInst, false, req);
+        }
+
+        template<int NumDwords, int SignBit = 0>
+        void
+        ldsComplete(GPUDynInstPtr gpuDynInst)
+        {
+            assert(gpuDynInst->executedAs() == enums::SC_GROUP);
+
+            Wavefront *wf = gpuDynInst->wavefront();
+            ScalarRegU32 inst_offset = instData.OFFSET;
+            ConstScalarOperandU32 lds_offset(gpuDynInst, REG_M0);
+
+            lds_offset.read();
+
+            // LDS base should be implied by the ldsChunk for the wave.
+            uint32_t m0_offset = bits(lds_offset.rawData(), 17, 2);
+            uint32_t lds_addr = m0_offset * 4 + inst_offset;
+
+            for (int lane = 0; lane < NumVecElemPerVecReg; ++lane) {
+                if (gpuDynInst->exec_mask[lane]) {
+                    uint32_t chunk_addr =
+                        lds_addr + lane * NumDwords * sizeof(VecElemU32);
+
+                    for (int i = 0; i < NumDwords; ++i) {
+                        VecElemU32 val = (reinterpret_cast<VecElemU32*>(
+                            gpuDynInst->d_data))[lane * NumDwords + i];
+                        if constexpr (SignBit != 0) {
+                            val = (VecElemI32)sext<SignBit>(val);
+                        }
+
+                        wf->ldsChunk->write<VecElemU32>(
+                            chunk_addr + i*sizeof(VecElemU32), val);
+                    }
+                }
+            }
         }
 
         /**
