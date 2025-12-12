@@ -134,6 +134,10 @@ class GPUStaticInst : public GPUStaticInstFlags
 
     bool isBarrier() const { return _flags[MemBarrier]; }
     bool isResUpdate() const {return _flags[ResUpdate]; }
+    bool isPerfettoStart() const {return _perfettoStart; }
+    bool isPerfettoEnd() const {return _perfettoEnd; }
+    void perfettoStart() {_perfettoStart = true; }
+    void perfettoEnd() {_perfettoEnd = true; }
     bool isInternalInst() const {return _flags[InternalInst]; }
     bool isResBarrier() const {return _flags[ResBarrier]; }
     bool isLdsBarrier() const {return _flags[LdsBarrier]; }
@@ -327,6 +331,7 @@ class GPUStaticInst : public GPUStaticInstFlags
     int srcScalarDWords;
     int dstScalarDWords;
     int maxOpSize;
+    bool _perfettoStart, _perfettoEnd;
 
     std::vector<OperandInfo> srcVecRegOps;
     std::vector<OperandInfo> dstVecRegOps;

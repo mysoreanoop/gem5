@@ -37076,7 +37076,9 @@ namespace VegaISA
         {
             switch (opIdx) {
               case 0: //vgpr_a
-                return 8;
+                return
+                  instData.OFFEN && instData.IDXEN ? 8
+                  : instData.OFFEN || instData.IDXEN ? 4 : 0;
               case 1: //sgpr_r
                 return 16;
               case 2: //sgpr_o

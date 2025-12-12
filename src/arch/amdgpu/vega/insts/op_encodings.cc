@@ -297,13 +297,16 @@ namespace VegaISA
     {
         std::stringstream dis_stream;
         dis_stream << _opcode << " ";
-        dis_stream << opSelectorToRegSym(instData.SDST) << ", ";
+        dis_stream << opSelectorToRegSym(instData.SDST,
+                         getOperandSize(getNumOperands()-1) / 4)
+                   << ", ";
 
         if (instData.SSRC0 == REG_SRC_LITERAL) {
             dis_stream << "0x" << std::hex
                        << extData.imm_u32;
         } else {
-            dis_stream << opSelectorToRegSym(instData.SSRC0);
+            dis_stream << opSelectorToRegSym(instData.SSRC0,
+                         getOperandSize(0) / 4);
         }
 
         disassembly = dis_stream.str();
@@ -340,12 +343,12 @@ namespace VegaISA
         // Needed because can't take addr of bitfield
         int reg = instData.SSRC0;
         srcOps.emplace_back(reg, getOperandSize(opNum), true,
-                              isScalarReg(instData.SSRC0), false, false);
+                  isScalarReg(instData.SSRC0), false, false);
         opNum++;
 
         reg = instData.SSRC1;
         srcOps.emplace_back(reg, getOperandSize(opNum), true,
-                              isScalarReg(instData.SSRC1), false, false);
+                  isScalarReg(instData.SSRC1), false, false);
 
     }
 
@@ -377,7 +380,8 @@ namespace VegaISA
             dis_stream << "0x" << std::hex
                        << extData.imm_u32;
         } else {
-            dis_stream << opSelectorToRegSym(instData.SSRC0) << ", ";
+            dis_stream << opSelectorToRegSym(instData.SSRC0)
+                       << ", ";
         }
 
         if (instData.SSRC1 == REG_SRC_LITERAL) {
@@ -1219,9 +1223,16 @@ namespace VegaISA
         std::stringstream dis_stream;
         dis_stream << _opcode << " ";
 
-        int ndw = getOperandSize(getNumOperands() - numDstRegOperands()) / 4;
-        dis_stream << opSelectorToRegSym(instData.VDST, ndw)
-                    << ", ";
+        int ndw = getOperandSize(getNumOperands() - numDstRegOperands());
+        if (ndw > 4) {
+            int num_regs = ndw / 4;
+            dis_stream << "v[";
+            dis_stream << instData.VDST << ":" << instData.VDST +
+                          num_regs - 1 << "], ";
+        } else {
+            dis_stream << "v";
+            dis_stream << instData.VDST << ", ";
+        }
 
         if (numDstRegOperands() == 2) {
             if (getOperandSize(getNumOperands() - 1) > 4) {
@@ -1272,6 +1283,7 @@ namespace VegaISA
         instData = iFmt[0];
         // copy second instruction DWORD
         extData = ((InFmt_VOP3P_1 *)iFmt)[1];
+        srcAcc = destAcc = false;
     } // Inst_VOP3P
 
     Inst_VOP3P::~Inst_VOP3P()
@@ -1337,12 +1349,14 @@ namespace VegaISA
         // The output size much be a multiple of dword size
         int dst_size = getOperandSize(numSrcRegOperands());
 
-        dis_stream << opSelectorToRegSym(instData.VDST + 0x100, dst_size / 4);
+        dis_stream << opSelectorToRegSym(instData.VDST + 0x100,
+                        dst_size / 4, destAcc);
 
         unsigned int srcs[3] = {extData.SRC0, extData.SRC1, extData.SRC2};
         for (int opnum = 0; opnum < numSrcRegOperands(); opnum++) {
             int num_regs = getOperandSize(opnum) / 4;
-            dis_stream << ", " << opSelectorToRegSym(srcs[opnum], num_regs);
+            dis_stream << ", " << opSelectorToRegSym(srcs[opnum],
+                                         num_regs, opnum == 0 && srcAcc);
         }
 
         // Print op_sel only if one is non-zero
@@ -1437,12 +1451,15 @@ namespace VegaISA
         // which is 1 for VGPRs as VGPR op nums are from 256-255.
         int dst_opnum = instData.VDST + 0x100;
 
-        dis_stream << opSelectorToRegSym(dst_opnum, dst_size / 4);
+        dis_stream << opSelectorToRegSym(dst_opnum, dst_size / 4,
+                                                         instData.ACC_CD);
 
         unsigned int srcs[3] = {extData.SRC0, extData.SRC1, extData.SRC2};
         for (int opnum = 0; opnum < numSrcRegOperands(); opnum++) {
-            int num_regs = getOperandSize(opnum) / 4;
-            dis_stream << ", " << opSelectorToRegSym(srcs[opnum], num_regs);
+            dis_stream << ", " << opSelectorToRegSym(srcs[opnum],
+                getOperandSize(opnum) / 4,
+                opnum == 2 ? instData.ACC_CD :
+                opnum == 1 ? extData.ACC & 1 : extData.ACC & 2);
         }
 
         disassembly = dis_stream.str();
@@ -1522,7 +1539,8 @@ namespace VegaISA
 
         if (numSrcRegOperands() > 1) {
             int ndw = getOperandSize(1) / 4;
-            dis_stream << ", " << opSelectorToRegSym(extData.DATA0 + 0x100, ndw);
+            dis_stream << ", " <<
+                     opSelectorToRegSym(extData.DATA0 + 0x100, ndw);
         }
         if (numSrcRegOperands() > 2)
             dis_stream << ", v" << extData.DATA1;
@@ -1570,7 +1588,7 @@ namespace VegaISA
     {
         DPRINTF(GPUFetch, "LAD translate MUBUF\n");
         extData.VDATA = (unsigned)wf->vgprTranslate(extData.VDATA);
-        // terData.VADDR = (unsigned)wf->vgprTranslate(terData.VADDR); Not Implemented
+        // terData.VADDR = (unsigned)wf->vgprTranslate(terData.VADDR);
     }
 
     void
@@ -1633,7 +1651,8 @@ namespace VegaISA
         int srsrc_val = extData.SRSRC * 4;
         std::stringstream dis_stream;
         dis_stream << _opcode << " ";
-        int ndw = getOperandSize(numDstRegOperands() ? getNumOperands()-1 : 0) / 4;
+        int ndw = getOperandSize(numDstRegOperands() ?
+                        getNumOperands()-1 : 0) / 4;
         dis_stream << opSelectorToRegSym(extData.VDATA + 0x100, ndw)
                    << ", ";
         dis_stream << "v" << extData.VADDR << ", ";
@@ -1872,8 +1891,6 @@ namespace VegaISA
     {
         DPRINTF(GPUFetch, "LAD translate FLAT\n");
         extData.VDST = (unsigned)wf->vgprTranslate(extData.VDST);
-        // terData.VADDR = (unsigned)wf->vgprTranslate(terData.VADDR); // Not implemented
-        // extData.VSRC = (unsigned)wf->vgprTranslate(extData.VSRC); // Not implemented
     }
 
     void

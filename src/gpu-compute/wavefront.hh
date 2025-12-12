@@ -368,9 +368,13 @@ class Wavefront : public SimObject
     // pc_offset, int(type << X | delta)
     std::unordered_map<int, int> pc_magicInsn;
 
+    bool ladExtSoon() {return lad_ext_soon;}
+    void ladExtSoon(bool v) {lad_ext_soon = v;}
+
   private:
     bool _atResourceBarrier;
     bool _atLdsBarrier;
+    bool lad_ext_soon;
 
     TheGpuISA::GPUISA _gpuISA;
 

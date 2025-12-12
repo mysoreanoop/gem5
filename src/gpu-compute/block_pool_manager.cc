@@ -501,8 +501,27 @@ uint32_t BlockPoolManager::translate(int id,
         }
     }
     printStatus();
-    // offset out of range of even reserved blocks
-    fatal ("translation of virt to phy vgpr/sgpr failed\n");
+    /*  NOTE:
+        arriving here indicates that virtualOffset is out of
+            range of even reserved blocks
+        if kernel's VGPR resource barrier is asserted later
+            than latest safe, and an earlier insn
+            attempted accessing VGPR from a block not yet
+            released to the WF, it will be caught at mapVgpr()
+            .. at which point prepone the barrier insn in the binary
+        if a following insn attempts a decode while the block
+            has not released, but a res barrier has been decoded,
+            mapVgpr() is skips the check.
+            if it then comes here, it's a legit illegal index
+        if kernel has releases resources too early and there is an
+            attempt to access a VGPR that was released, it can
+            come here
+            .. at which point, delay the release &| reduce released res
+        But ideally, you should look into the LAD script
+            and fix the presumably wrong logic there.
+    */
+    fatal ("translation of virt (%d) to phy vgpr/sgpr failed\n",
+            virtualOffset);
 }
 
 void BlockPoolManager::printStatus() const {

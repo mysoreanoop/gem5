@@ -311,14 +311,17 @@ void
 GPUCommandProcessor::modifyHSATask(HSAQueueEntry *task) {
     int dispId = task->dispatchId();
     if (lad_annotation_parser.isDispLad(dispId)) {
-        DPRINTF(GPUCommandProc, "Dispatch %d is LAD; modifying \".kd\"\n", dispId);
-        task->numEarlyVectorRegs(lad_annotation_parser.get_kd_modifier(dispId, "numEarlyVectorRegs").value_or(0));
-        task->numEarlyScalarRegs(lad_annotation_parser.get_kd_modifier(dispId, "numEarlyScalarRegs").value_or(0));
-        task->pctEarlyLDSBytes(lad_annotation_parser.get_kd_modifier(dispId, "pctEarlyLDSBytes").value_or(0));
+        DPRINTF(GPUCommandProc,
+            "Dispatch %d is LAD; modifying \".kd\"\n", dispId);
+        task->numEarlyVectorRegs(lad_annotation_parser.get_kd_modifier(dispId,
+            "numEarlyVectorRegs").value_or(task->numVectorRegs()));
+        task->numEarlyScalarRegs(lad_annotation_parser.get_kd_modifier(dispId,
+             "numEarlyScalarRegs").value_or(task->numScalarRegs()));
+        task->earlyLdsDemand(lad_annotation_parser.get_kd_modifier(dispId,
+             "earlyLdsDemand").value_or(task->ldsSize()));
         task->makeLookaheadDisp();
     } else
         DPRINTF(GPUCommandProc, "Dispatch %d is *not* LAD\n", dispId);
-
 }
 
 void

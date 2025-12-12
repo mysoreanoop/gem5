@@ -233,6 +233,11 @@ class GPUDynInst : public GPUExecContext
     bool isResBarrier() const;
     bool isLdsBarrier() const;
     bool isResUpdate() const;
+    bool isPerfettoStart() const;
+    bool isPerfettoEnd() const;
+    void perfettoStart();
+    void perfettoEnd();
+
     bool isInternalInst() const;
     bool isMemSync() const;
     bool isMemRef() const;

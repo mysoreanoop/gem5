@@ -770,14 +770,16 @@ class LdsState: public ClockedObject
     // only last wf can downgrade; not before
     void
     downgrade(uint32_t dispatchId, uint32_t wgId,
-      long long int pc, int32_t pct)
+      long long int pc, int32_t delta) // delta in bytes
     {
       // make sure to never downgrade after markTerminal
       assert(!chunkMap[dispatchId][wgId].isTerminal());
 
       int original_size = chunkMap[dispatchId][wgId].size();
-      int final_size = (int) (((float)1 - (float)pct/(float)100)
-            * (float)chunkMap[dispatchId][wgId].size());
+      // TODO: need to fix a block size granularity to ensure
+      // a standard encoding of delta (currently, assumed 1K)
+      // across the liveness script (compiler eventually) and HW
+      int final_size = chunkMap[dispatchId][wgId].size() - delta;
       assert (original_size >= final_size);
       DPRINTF(GPULDS, "Downgrading LDS for wgId %d from %d to %d\n",
         wgId,
@@ -790,7 +792,6 @@ class LdsState: public ClockedObject
           original_size, chunkMap[dispatchId][wgId].size());
         printCurrentUsage();
       }
-
     }
 
   protected:

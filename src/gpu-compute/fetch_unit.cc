@@ -598,7 +598,8 @@ FetchUnit::FetchBufDesc::decodeInsts()
                         last_buf_pc->second - wavefront->start_pc);
             if (wavefront->wgId == 0 && wavefront->wfId == 0) {
                 DPRINTF(GPUKernelInfo, "PC: %d | Insn: %s | kernId %d\n",
-                    curr_pc_offset, gpu_static_inst->disassemble(), wavefront->kernId);
+                    curr_pc_offset, gpu_static_inst->disassemble(),
+                    wavefront->kernId);
             }
 
             readPtr += gpu_static_inst->instSize();
@@ -608,39 +609,58 @@ FetchUnit::FetchBufDesc::decodeInsts()
             if (wavefront->lad) {
                 // translate VGPRs for LAD
                 gpu_static_inst->translateLAD(wavefront);
-                if (wavefront->pc_magicInsn.find(curr_pc_offset) != wavefront->pc_magicInsn.end()) {
-                    // idea is to set both ResUpdate, ResBarrier/LdsBarrier and InternalInst
-                    // where ResUpdate executes, it is executed alongside, not in place of
-                    // the original instruction (loses decode latency)
+                if (wavefront->pc_magicInsn.find(curr_pc_offset)
+                        != wavefront->pc_magicInsn.end()) {
+                    // idea is to set both ResUpdate, ResBarrier/LdsBarrier
+                    // and InternalInst where ResUpdate executes, it is
+                    // executed alongside, not in place of the original insn
+                    // this loses decode latency
                     GPUStaticInstFlags::Flags flag;
-                    switch (wavefront->pc_magicInsn[curr_pc_offset] & 0xff) {
-                        case 0xf0: // VGPR_UPGRADE
-                        case 0xf1: // VGPR_DOWNGRADE
-                        case 0xf2: // SGPR_UPGRADE
-                        case 0xf3: // SGPR_DOWNGRADE
-                        case 0xf4: // LDS_UPGRADE
-                        case 0xf5: // LDS_DOWNGRADE
-                        case 0xf6: // VGPR_TERMINAL
-                        case 0xf7: // LDS_TERMINAL
-                            flag = GPUStaticInstFlags::Flags::ResUpdate;
-                            break;
-                        case 0xf8: // VGPR_BARRIER
-                            flag = GPUStaticInstFlags::Flags::ResBarrier;
-                            break;
-                        case 0xf9: // LDS_BARRIER
-                            flag = GPUStaticInstFlags::Flags::LdsBarrier;
-                            break;
-                        default:
-                            panic("Unrecognized instruction flag in LAD: %x\n",
-                                wavefront->pc_magicInsn[curr_pc_offset] >> 8);
+                    if ((wavefront->pc_magicInsn[curr_pc_offset] & 0xff)
+                                                                  == 0xfa) {
+                        // PerfettoStart
+                        gpu_static_inst->perfettoStart();
+                    } else if ((wavefront->pc_magicInsn[curr_pc_offset] & 0xff)
+                                                                  == 0xfb) {
+                        // PerfettoEnd
+                        gpu_static_inst->perfettoEnd();
+                    } else {
+                        switch (wavefront->pc_magicInsn[curr_pc_offset]
+                                                                     & 0xff) {
+                            case 0xf0: // VGPR_UPGRADE
+                            case 0xf1: // VGPR_DOWNGRADE
+                            case 0xf2: // SGPR_UPGRADE
+                            case 0xf3: // SGPR_DOWNGRADE
+                            case 0xf4: // LDS_UPGRADE
+                            case 0xf5: // LDS_DOWNGRADE
+                            case 0xf6: // VGPR_TERMINAL
+                            case 0xf7: // LDS_TERMINAL
+                                flag = GPUStaticInstFlags::Flags::ResUpdate;
+                                break;
+                            case 0xf8: // VGPR_BARRIER
+                                flag = GPUStaticInstFlags::Flags::ResBarrier;
+                                break;
+                            case 0xf9: // LDS_BARRIER
+                                flag = GPUStaticInstFlags::Flags::LdsBarrier;
+                                break;
+                            default:
+                                panic("Unrecognized instruction flag in LAD:"
+                                    " %x\n", wavefront->
+                                            pc_magicInsn[curr_pc_offset] >> 8);
+                        }
+                        gpu_static_inst->setFlag(flag);
                     }
-
-                    gpu_static_inst->setFlag(GPUStaticInst::Flags::InternalInst);
-                    gpu_static_inst->setFlag(flag);
-                    ComputeUnit::RTYPE resource = static_cast<ComputeUnit::RTYPE>(wavefront->pc_magicInsn[curr_pc_offset] & 0xff);
-                    uint32_t delta = (wavefront->pc_magicInsn[curr_pc_offset] & 0xff00) >> 8;
+                    gpu_static_inst->
+                            setFlag(GPUStaticInst::Flags::InternalInst);
+                    ComputeUnit::RTYPE resource =
+                        static_cast<ComputeUnit::RTYPE>
+                            (wavefront->pc_magicInsn[curr_pc_offset] & 0xff);
+                    uint32_t delta = (wavefront->
+                                pc_magicInsn[curr_pc_offset] & 0xff00) >> 8;
                     gpu_static_inst->ladParam(resource, delta);
-                    DPRINTF(GPUFetch, "Set LAD flag: 0x%x, 0x%x\n", wavefront->pc_magicInsn[curr_pc_offset] >> 8, wavefront->pc_magicInsn[curr_pc_offset] & 0xff);
+                    DPRINTF(GPUFetch, "Set LAD flag: 0x%x, 0x%x\n",
+                        wavefront->pc_magicInsn[curr_pc_offset] >> 8,
+                        wavefront->pc_magicInsn[curr_pc_offset] & 0xff);
                 }
             }
             GPUDynInstPtr gpu_dyn_inst
@@ -648,6 +668,10 @@ FetchUnit::FetchBufDesc::decodeInsts()
                                                wavefront, gpu_static_inst,
                                                wavefront->computeUnit->
                                                 getAndIncSeqNum());
+            // see mapVgpr() in block_register_manager_policy.cc
+            // if (gpu_dyn_inst->isResBarrier()) {
+            //     wavefront->ladExtSoon(true);
+            // }
             wavefront->instructionBuffer.push_back(gpu_dyn_inst);
 
             DPRINTF(GPUFetch, "WF[%d][%d]: Id%ld decoded %s (%d bytes). "
@@ -696,35 +720,49 @@ FetchUnit::FetchBufDesc::decodeSplitInst()
     if (wavefront->lad) {
         // translate VGPRs for LAD
         gpu_static_inst->translateLAD(wavefront);
-        if (wavefront->pc_magicInsn.find(curr_pc_offset) != wavefront->pc_magicInsn.end()) {
-            // idea is to set both ResUpdate, ResBarrier/LdsBarrier and InternalInst
-            // where ResUpdate executes, it is executed alongside, not in place of
-            // the original instruction (loses decode latency)
+        if (wavefront->pc_magicInsn.find(curr_pc_offset)
+                != wavefront->pc_magicInsn.end()) {
+            // idea is to set both ResUpdate, ResBarrier/LdsBarrier
+            // and InternalInst where ResUpdate executes, it is
+            // executed alongside, not in place of the original insn
+            // this loses decode latency
             GPUStaticInstFlags::Flags flag;
-            switch (wavefront->pc_magicInsn[curr_pc_offset] & 0xff) {
-                case 0xf0: // VGPR_UPGRADE
-                case 0xf1: // VGPR_DOWNGRADE
-                case 0xf2: // SGPR_UPGRADE
-                case 0xf3: // SGPR_DOWNGRADE
-                case 0xf4: // LDS_UPGRADE
-                case 0xf5: // LDS_DOWNGRADE
-                case 0xf6: // VGPR_TERMINAL
-                case 0xf7: // LDS_TERMINAL
-                    flag = GPUStaticInstFlags::Flags::ResUpdate;
-                    break;
-                case 0xf8: // VGPR_BARRIER
-                    flag = GPUStaticInstFlags::Flags::ResBarrier;
-                    break;
-                case 0xf9: // LDS_BARRIER
-                    flag = GPUStaticInstFlags::Flags::LdsBarrier;
-                    break;
-                default:
-                    panic("Unrecognized instruction flag in LAD: %x\n",
-                        wavefront->pc_magicInsn[curr_pc_offset] >> 8);
+            if ((wavefront->pc_magicInsn[curr_pc_offset] & 0xff)
+                                                            == 0xfa) {
+                // PerfettoStart
+                gpu_static_inst->perfettoStart();
+            } else if ((wavefront->pc_magicInsn[curr_pc_offset] & 0xff)
+                                                            == 0xfb) {
+                // PerfettoEnd
+                gpu_static_inst->perfettoEnd();
+            } else {
+                switch (wavefront->pc_magicInsn[curr_pc_offset]
+                                                                & 0xff) {
+                    case 0xf0: // VGPR_UPGRADE
+                    case 0xf1: // VGPR_DOWNGRADE
+                    case 0xf2: // SGPR_UPGRADE
+                    case 0xf3: // SGPR_DOWNGRADE
+                    case 0xf4: // LDS_UPGRADE
+                    case 0xf5: // LDS_DOWNGRADE
+                    case 0xf6: // VGPR_TERMINAL
+                    case 0xf7: // LDS_TERMINAL
+                        flag = GPUStaticInstFlags::Flags::ResUpdate;
+                        break;
+                    case 0xf8: // VGPR_BARRIER
+                        flag = GPUStaticInstFlags::Flags::ResBarrier;
+                        break;
+                    case 0xf9: // LDS_BARRIER
+                        flag = GPUStaticInstFlags::Flags::LdsBarrier;
+                        break;
+                    default:
+                        panic("Unrecognized instruction flag in LAD:"
+                            " %x\n", wavefront->
+                                    pc_magicInsn[curr_pc_offset] >> 8);
+                }
+                gpu_static_inst->setFlag(flag);
             }
 
             gpu_static_inst->setFlag(GPUStaticInst::Flags::InternalInst);
-            gpu_static_inst->setFlag(flag);
             ComputeUnit::RTYPE resource =
                 static_cast<ComputeUnit::RTYPE>
                     (wavefront->pc_magicInsn[curr_pc_offset] & 0xff);

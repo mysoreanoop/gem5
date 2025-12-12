@@ -56,13 +56,27 @@ BlockRegisterManagerPolicy::mapVgpr(Wavefront* w, int vgprIndex)
     // this should also fire if the vgpr idx exceeds early alloc
     // but is ignored (when vgprIndex >= w->reservedVectorRegs)
     // problem is decode would require translation prior to fulfilment
-    // of full vgpr requirement, no clean way to check it
-    panic_if((vgprIndex >= w->maxVgprs)
+    // of full vgpr requirement
+
+    /* TODO: imperative to compare to w->reservedVectorRegs rather
+    * than w->maxVgprs currently, there are cases where the fetch/decode
+    * stage needs to be able to translate beyond the
+    * w->reservedVectorRegs when the lazy-extension is still to be
+    * executed (stalled by res barrier), which will panic. The solution
+    * is to introduce a `isExtendingSoon()` that's updated in the fetch
+    * when the lazy extension is fetched, and depending on that, change
+    * the below condition to: `vgprIndex >= (w->ladExtSoon() ?
+    *                              w->maxVgprs : w->reservedVectorRegs`
+    * but ensure that it's reset properly at the beginning of WF launch
+    * and at early-release side, since right after early release, we'll
+    * need to check against w->reservedVectorRegs back again.
+    */
+    panic_if(vgprIndex >= w->maxVgprs
              || (w->reservedVectorRegs < 0)
              || (w->reservedVectorRegs > w->maxVgprs),
              "VGPR index %d is out of range: VGPR range=[0,%d)"
              " | Wf[%d][%d] Wg%d Wf%d\n",
-             vgprIndex, w->maxVgprs,
+             vgprIndex, vgprIndex >= w->maxVgprs,
              w->simdId, w->wfSlotId, w->wgId, w->wfDynId);
 
     // add the offset

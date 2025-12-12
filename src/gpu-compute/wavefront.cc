@@ -1168,16 +1168,16 @@ Wavefront::exec()
         }
     }
 
-    if (ii->isInternalInst()) {
+    if (lad && ii->isInternalInst()) {
         // resource barriers are executed with just the flag
         // resource updates require a function call that is otherwise
         // part of the execute() called below. In the JSON annotation
         // mode, the instruction only carries the flag, and that insn
         // doesn't implement the trigger. So, we need to explicitly
         // implement the trigger here.
-        DPRINTF(GPUDisp, "Internal instruction @ PC %llx\n", pc()-start_pc);
+        DPRINTF(GPUDisp, "Internal instruction @ PC %d\n", pc()-start_pc);
         if (ii->isResUpdate()) {
-            uint32_t delta; 
+            uint32_t delta;
             ComputeUnit::RTYPE resource;
             std::tie(resource, delta) = ii->ladParam();
 
@@ -1185,6 +1185,19 @@ Wavefront::exec()
 
             DPRINTF(GPUDisp, "CU%d WF[%d][%d] S_SENDMSG: %d %d\n",
                 ii->computeUnit()->cu_id, simdId, wfSlotId, resource, delta);
+        } else if (ii->isPerfettoStart()) {
+            DPRINTF(GPUDisp, "Perfetto region starting for WF%d\n",
+                    wfDynId);
+            std::string phase = std::to_string(kernId);
+            markRegion(phase, 0);
+        } else if (ii->isPerfettoEnd()) {
+            DPRINTF(GPUDisp, "Perfetto region ending for WF%d\n",
+                    wfDynId);
+            std::string phase = std::to_string(kernId);
+            markRegion(phase, 1);
+        } else {
+            DPRINTF(GPUDisp, "Resource / LDS barrier for WF%d\n",
+                    wfDynId);
         }
     }
 

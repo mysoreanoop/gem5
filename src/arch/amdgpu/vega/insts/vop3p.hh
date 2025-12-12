@@ -46,10 +46,13 @@ namespace VegaISA
     class Inst_VOP3P__1OP : public Inst_VOP3P
     {
       public:
-        Inst_VOP3P__1OP(InFmt_VOP3P *iFmt, const std::string& name)
+        Inst_VOP3P__1OP(InFmt_VOP3P *iFmt, const std::string& name,
+            bool _srcAcc, bool _destAcc)
             : Inst_VOP3P(iFmt, name)
         {
             setFlag(ALU);
+            srcAcc = _srcAcc;
+            destAcc = _destAcc;
         }
 
         int
@@ -420,7 +423,7 @@ namespace VegaISA
     {
       public:
         Inst_VOP3P__V_ACCVGPR_READ(InFmt_VOP3P *iFmt)
-            : Inst_VOP3P__1OP(iFmt, "v_accvgpr_read")
+            : Inst_VOP3P__1OP(iFmt, "v_accvgpr_read", true, false)
         { }
 
         void execute(GPUDynInstPtr gpuDynInst) override;
@@ -430,7 +433,7 @@ namespace VegaISA
     {
       public:
         Inst_VOP3P__V_ACCVGPR_WRITE(InFmt_VOP3P *iFmt)
-            : Inst_VOP3P__1OP(iFmt, "v_accvgpr_write")
+            : Inst_VOP3P__1OP(iFmt, "v_accvgpr_write", false, true)
         { }
 
         void execute(GPUDynInstPtr gpuDynInst) override;

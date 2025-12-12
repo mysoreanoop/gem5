@@ -44,12 +44,12 @@ class HSAPacketProcessor(DmaVirtDevice):
     # See:
     # Sooraj Puthoor et al., Oversubscribed Command Queues in GPUs. In the
     # proceedings of the 11th Workshop on General Purpose GPUs (GPGPU). 2018.
-    wakeupDelay = Param.Tick(100000000, "Scheduling quantum")
+    wakeupDelay = Param.Tick(100000, "Scheduling quantum")
     # This value was obtained empirically on Kaveri hardware via the KPS
     # benchmark from ATMI.
     # See: https://github.com/RadeonOpenCompute/atmi/tree/master/examples/
     #      runtime/kps
-    pktProcessDelay = Param.Tick(4400000, "Packet processing delay")
+    pktProcessDelay = Param.Tick(44000, "Packet processing delay")
     walker = Param.VegaPagetableWalker(
         VegaPagetableWalker(), "Page table walker"
     )

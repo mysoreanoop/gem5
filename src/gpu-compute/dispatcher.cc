@@ -197,8 +197,8 @@ GPUDispatcher::exec()
             shader->updateContext(task->contextId());
 
             // attempt to dispatch workgroup
-            DPRINTF(GPUWgLatency, "Attempt Kernel Launch: kernel:%s(%d)\n",
-                task->kernelName(), exec_id);
+            DPRINTF(GPUWgLatency, "Attempt to launch kernel %d (%s)\n",
+                exec_id, task->kernelName());
 
             if (!shader->dispatchWorkgroups(task)) {
                 /**
@@ -214,8 +214,8 @@ GPUDispatcher::exec()
                 launched = true;
                 launch_acquired_kerns.insert(exec_id);
                 disp_count++;
-                DPRINTF(GPUKernelInfo, "Launched kernel %d for WG %d\n",
-                            exec_id, disp_count);
+                DPRINTF(GPUKernelInfo, "Launched %d WGs of kernel %d\n",
+                            disp_count, exec_id);
             }
         }
 

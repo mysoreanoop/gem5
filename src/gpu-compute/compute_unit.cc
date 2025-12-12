@@ -572,18 +572,20 @@ ComputeUnit::dispWorkgroup(HSAQueueEntry *task, int num_wfs_in_wg,
     // globally unique
     LdsChunk *ldsChunk;
     if (earlyAllocLDS) {
-        int earlyLDSDemand = static_cast<int>
-            (task->pctEarlyLDSBytes() / 100.0f * task->ldsSize());
+        int earlyLDSDemand = task->earlyLdsDemand();
+
         ldsChunk = lds.earlyReserveSpace(task->dispatchId(),
                                          task->globalWgId(),
                                          num_wfs_in_wg,
                                          earlyLDSDemand,
                                          task->ldsSize());
+        DPRINTF(GPULDS, "Allocating %dB LDS early\n", earlyLDSDemand);
     } else {
         ldsChunk = lds.reserveSpace(task->dispatchId(),
                                           task->globalWgId(),
                                           num_wfs_in_wg,
                                           task->ldsSize());
+        DPRINTF(GPULDS, "Allocating full %dB LDS\n", task->ldsSize());
     }
 
     panic_if(!ldsChunk, "was not able to reserve space for this WG");
@@ -849,19 +851,17 @@ ComputeUnit::hasDispResources(HSAQueueEntry *task, int &num_wfs_in_wg,
     // enough VGPRs to schedule all WFs to their SIMD units
     bool ldsAvail;
     if (lookahead) {
-        int earlyLDSDemand = (int)((float)task->pctEarlyLDSBytes() /
-                                (float)100 * (float)task->ldsSize());
-
         // try full reservation, and if not, early reservation
         ldsAvail = lds.canReserve(task->ldsSize());
         if (!ldsAvail) {
-            ldsAvail = lds.canEarlyReserve(earlyLDSDemand, task->ldsSize());
+            ldsAvail = lds.canEarlyReserve(task->earlyLdsDemand(),
+                                           task->ldsSize());
             if (!ldsAvail) {
                 DPRINTF(GPUDisp, "Inadequate LDS on CU, returning\n");
             } else {
                 earlyAllocLDS = true;
                 DPRINTF(GPUDisp, "CU[%d] early LDS requested (%d)\n",
-                    cu_id, earlyLDSDemand);
+                    cu_id, task->earlyLdsDemand());
             }
         }
         // else early LDS not necessary
@@ -877,11 +877,12 @@ ComputeUnit::hasDispResources(HSAQueueEntry *task, int &num_wfs_in_wg,
     if (!barrier_avail) {
         stats.wgBlockedDueBarrierAllocation++;
     }
-    
-    if (numMappedWfs < numWfs) {
+
+    if (numMappedWfs < numWfs || !ldsAvail || !sregAvail ||
+            !vregAvail || !barrier_avail) {
         DPRINTF(GPUDisp, "CU[%d] limiting resource:\n\t"
-            "VGPR %d | SGPR %d| LDS %d | Bar %d\n",
-            cu_id, !vregAvail, !sregAvail,
+            "WFSlot %d | VGPR %d | SGPR %d| LDS %d | Bar %d\n",
+            cu_id, freeWfSlots < numWfs, !vregAvail, !sregAvail,
             !ldsAvail, !barrier_avail);
     }
 
@@ -2661,7 +2662,10 @@ ComputeUnit::resourceUpdate(Wavefront *wf, RTYPE resource, int delta)
     switch (resource) {
         case VGPR_DOWNGRADE:
         case SGPR_DOWNGRADE: // deltas required
-            DPRINTF(GPUSync, "downgrade %s by %d\n",
+            // TODO: might need to include a conversion here
+            // so the encoding can actually be in times 8 so larger deltas
+            // can be encoded into the immediate operand of the s_sendmsg insn
+            DPRINTF(GPUDisp, "downgrade %s by %d\n",
                     resource == VGPR_DOWNGRADE ? "vgpr" : "sgpr", delta);
 
             registerManager->partialFreeRegisters(wf,
@@ -2673,30 +2677,32 @@ ComputeUnit::resourceUpdate(Wavefront *wf, RTYPE resource, int delta)
         case VGPR_UPGRADE:
         case SGPR_UPGRADE: // no delta necessary
             // extends the allocated regsiters to full allocation
-            DPRINTF(GPUSync, "upgrade %s\n",
+            DPRINTF(GPUDisp, "upgrade %s\n",
                     resource == VGPR_UPGRADE ? "vgpr" : "sgpr");
             // registers that were reserved for this LAD WG/WF's extension
             // is transparently reassigned (from reserved state to granted)
             // when the original owner WG/WF terminates, and,
             // the resource barrier will take care of waiting until then
             registerManager->extendRegisters(wf);
+            wf->ladExtSoon(false); // from this insn on, mapVgpr can panic
             break;
         case VGPR_TERMINAL:
-            DPRINTF(GPUSync, "resource terminal\n");
+            DPRINTF(GPUDisp, "resource terminal\n");
             registerManager->markTerminal(wf);
             // TODO: guaranteed triggers dispatcher exec() (probly low perf)
             resourceUpdated(true, wf->wfDynId);
             break;
         case LDS_DOWNGRADE:
-            DPRINTF(GPULDS, "LDS downgrade, delta %d pct\n", delta);
-            lds.downgrade(wf->dispatchId, wf->wgId, wf->pc(), delta);
+            // TODO: delta is in KB, ensure the LAD script recognizes that
+            DPRINTF(GPUDisp, "LDS downgrade, delta %d KB\n", delta);
+            lds.downgrade(wf->dispatchId, wf->wgId, wf->pc(), delta * 1024);
             break;
         case LDS_UPGRADE:
-            DPRINTF(GPULDS, "LDS upgrade, automatic delta\n");
+            DPRINTF(GPUDisp, "LDS upgrade, automatic delta\n");
             // do nothing, the allocation transfers automatically
             break;
         case LDS_TERMINAL:
-            DPRINTF(GPULDS, "LDS terminal\n");
+            DPRINTF(GPUDisp, "LDS terminal\n");
             lds.markTerminal(wf->dispatchId, wf->wgId);
             // functionally correct, but possibly low perf;
             // could perhaps wait for all waves to become terminal

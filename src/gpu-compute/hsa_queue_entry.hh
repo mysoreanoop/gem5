@@ -83,7 +83,8 @@ class HSAQueueEntry
                          private_segment_size),
           _contextId(0), _wgId{{ 0, 0, 0 }},
           _numWgTotal(1), numWgArrivedAtBarrier(0), _numWgCompleted(0),
-          _globalWgId(0), dispatchComplete(false)
+          _globalWgId(0), dispatchComplete(false),
+          numEarlyVgprs(0), numEarlySgprs(0), earlyLds(0), lookahead_disp(0)
 
     {
         // Use the resource descriptors to determine number of GPRs. This will
@@ -99,23 +100,8 @@ class HSAQueueEntry
         if (gfx_version == GfxVersion::gfx90a ||
             gfx_version == GfxVersion::gfx942) {
             numVgprs = (akc->granulated_workitem_vgpr_count + 1) * 8;
-            // FIXME: figure out a way to integrate this in kd
-            // numEarlyVgprs = (akc->early_vgpr_count + 1);
-            // numEarlySgprs = (akc->early_sgpr_count + 1);
-            // pctEarlyLDS = (akc->pct_early_lds);
-            numEarlySgprs = 40;
-            numEarlyVgprs = 93;
-            pctEarlyLDS = 0;
-            // enables lookahead dispatch
-            lookahead_disp = akc->use_dynamic_stack;
         } else {
             numVgprs = (akc->granulated_workitem_vgpr_count + 1) * 4;
-            // untested
-            // numEarlyVgprs = (akc->early_vgpr_count + 1);
-            // numEarlySgprs = (akc->early_sgpr_count + 1);
-            // pctEarlyLDS = (akc->pct_early_lds);
-            // enables lookahead dispatch
-            lookahead_disp = akc->use_dynamic_stack;
         }
 
         // SGPR allocation granulary is 16 in GFX9
@@ -191,9 +177,9 @@ class HSAQueueEntry
     }
 
     void
-    pctEarlyLDSBytes(int e)
+    earlyLdsDemand(int e)
     {
-        pctEarlyLDS = e;
+        earlyLds = e;
     }
 
     void
@@ -215,9 +201,9 @@ class HSAQueueEntry
     }
 
     int
-    pctEarlyLDSBytes() const
+    earlyLdsDemand() const
     {
-        return pctEarlyLDS;
+        return earlyLds;
     }
 
     bool
@@ -554,11 +540,6 @@ class HSAQueueEntry
     std::array<int, MAX_DIM> _gridSize;
     // total number of VGPRs per work-item
     int numVgprs;
-    // early allocation
-    int numEarlyVgprs;
-    int numEarlySgprs;
-    int pctEarlyLDS;
-    int lookahead_disp;
 
     // total number of SGPRs per wavefront
     int numSgprs;
@@ -603,6 +584,12 @@ class HSAQueueEntry
     int _numWgCompleted;
     int _globalWgId;
     bool dispatchComplete;
+
+    // lookahead dispatch parameters
+    int numEarlyVgprs;
+    int numEarlySgprs;
+    int earlyLds;
+    int lookahead_disp;
 
     std::bitset<NumVectorInitFields> initialVgprState;
     std::bitset<NumScalarInitFields> initialSgprState;

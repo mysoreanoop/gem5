@@ -85,7 +85,10 @@ namespace VegaISA
             reg_sym = "m0";
             break;
           case REG_EXEC_LO:
-            reg_sym = "exec";
+            reg_sym = "exec_lo";
+            break;
+          case REG_EXEC_HI:
+            reg_sym = "exec_hi";
             break;
           case REG_ZERO:
             reg_sym = "0";
@@ -130,7 +133,7 @@ namespace VegaISA
             reg_sym = "1 / (2*pi)";
             break;
           default:
-            fatal("VEGA ISA instruction has unknown register index: %d\n", idx);
+            fatal("VEGA ISA instruction has unknown register index %u\n", idx);
             break;
         }
 

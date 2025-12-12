@@ -435,6 +435,31 @@ GPUDynInst::isResBarrier() const
 {
     return _staticInst->isResBarrier();
 }
+
+bool
+GPUDynInst::isPerfettoStart() const
+{
+    return _staticInst->isPerfettoStart();
+}
+
+bool
+GPUDynInst::isPerfettoEnd() const
+{
+    return _staticInst->isPerfettoEnd();
+}
+
+void
+GPUDynInst::perfettoEnd()
+{
+    _staticInst->perfettoEnd();
+}
+
+void
+GPUDynInst::perfettoStart()
+{
+    _staticInst->perfettoStart();
+}
+
 bool
 GPUDynInst::isLdsBarrier() const
 {
