@@ -62,6 +62,8 @@ LdsState::LdsState(const Params &params) :
              "cannot allocate an LDS with a size less than 1");
     fatal_if(params.size % 2,
           "the LDS should be an even number");
+    bytesAllocated = bytesCeded = bytesReserved = bytesTerminal = 0;
+    _bytesFree = maximumSize;
 }
 
 /**
